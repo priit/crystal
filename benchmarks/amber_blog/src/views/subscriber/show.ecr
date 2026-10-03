@@ -1,0 +1,11 @@
+<h1>Subscriber</h1>
+
+<dl>
+  <dt>Email</dt>
+  <dd><%= @subscriber.email %></dd>
+  <dt>Confirmed</dt>
+  <dd><%= @subscriber.confirmed %></dd>
+</dl>
+
+<a href="/subscribers">Back</a>
+<a href="/subscribers/<%= @subscriber.id %>/edit">Edit</a>

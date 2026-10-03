@@ -1,0 +1,31 @@
+<h1>MenuItems</h1>
+
+<a href="/menu_items/new">New MenuItem</a>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>PageId</th>
+      <th>Label</th>
+      <th>Url</th>
+      <th>Position</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @menu_items.each do |menu_item| %>
+      <tr>
+        <td><%= menu_item.id %></td>
+        <td><%= menu_item.page_id %></td>
+        <td><%= menu_item.label %></td>
+        <td><%= menu_item.url %></td>
+        <td><%= menu_item.position %></td>
+        <td>
+          <a href="/menu_items/<%= menu_item.id %>">Show</a>
+          <a href="/menu_items/<%= menu_item.id %>/edit">Edit</a>
+        </td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>

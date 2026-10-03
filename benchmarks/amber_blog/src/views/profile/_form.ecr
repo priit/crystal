@@ -1,0 +1,34 @@
+<% unless @errors.empty? %>
+  <div class="form-errors" role="alert">
+    <p>Please correct the following:</p>
+    <ul>
+      <% @errors.each do |error| %>
+        <li><%= error.field %>: <%= error.message || "is invalid" %></li>
+      <% end %>
+    </ul>
+  </div>
+<% end %>
+
+<form action="<%= @profile.persisted? ? "/profiles/#{@profile.id}" : "/profiles" %>" method="POST">
+  <%= csrf_tag %>
+  <% if @profile.persisted? %>
+    <%= hidden_field("_method", "PATCH") %>
+  <% end %>
+  <div class="form-group">
+    <%= label("user_id") %>
+    <%= number_field("user_id", value: @profile.user_id?) %>
+  </div>
+  <div class="form-group">
+    <%= label("website") %>
+    <%= text_field("website", value: @profile.website?) %>
+  </div>
+  <div class="form-group">
+    <%= label("location") %>
+    <%= text_field("location", value: @profile.location?) %>
+  </div>
+  <div class="form-group">
+    <%= label("avatar_url") %>
+    <%= text_field("avatar_url", value: @profile.avatar_url?) %>
+  </div>
+  <%= submit_button("Save") %>
+</form>

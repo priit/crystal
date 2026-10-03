@@ -1,0 +1,31 @@
+<h1>Profiles</h1>
+
+<a href="/profiles/new">New Profile</a>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>UserId</th>
+      <th>Website</th>
+      <th>Location</th>
+      <th>AvatarUrl</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @profiles.each do |profile| %>
+      <tr>
+        <td><%= profile.id %></td>
+        <td><%= profile.user_id %></td>
+        <td><%= profile.website %></td>
+        <td><%= profile.location %></td>
+        <td><%= profile.avatar_url %></td>
+        <td>
+          <a href="/profiles/<%= profile.id %>">Show</a>
+          <a href="/profiles/<%= profile.id %>/edit">Edit</a>
+        </td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>

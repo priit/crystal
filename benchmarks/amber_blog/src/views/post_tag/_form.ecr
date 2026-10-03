@@ -1,0 +1,26 @@
+<% unless @errors.empty? %>
+  <div class="form-errors" role="alert">
+    <p>Please correct the following:</p>
+    <ul>
+      <% @errors.each do |error| %>
+        <li><%= error.field %>: <%= error.message || "is invalid" %></li>
+      <% end %>
+    </ul>
+  </div>
+<% end %>
+
+<form action="<%= @post_tag.persisted? ? "/post_tags/#{@post_tag.id}" : "/post_tags" %>" method="POST">
+  <%= csrf_tag %>
+  <% if @post_tag.persisted? %>
+    <%= hidden_field("_method", "PATCH") %>
+  <% end %>
+  <div class="form-group">
+    <%= label("post_id") %>
+    <%= number_field("post_id", value: @post_tag.post_id?) %>
+  </div>
+  <div class="form-group">
+    <%= label("tag_id") %>
+    <%= number_field("tag_id", value: @post_tag.tag_id?) %>
+  </div>
+  <%= submit_button("Save") %>
+</form>

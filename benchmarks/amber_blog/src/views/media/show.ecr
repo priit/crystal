@@ -1,0 +1,15 @@
+<h1>Media</h1>
+
+<dl>
+  <dt>UserId</dt>
+  <dd><%= @media.user_id %></dd>
+  <dt>Filename</dt>
+  <dd><%= @media.filename %></dd>
+  <dt>ContentType</dt>
+  <dd><%= @media.content_type %></dd>
+  <dt>ByteSize</dt>
+  <dd><%= @media.byte_size %></dd>
+</dl>
+
+<a href="/medias">Back</a>
+<a href="/medias/<%= @media.id %>/edit">Edit</a>

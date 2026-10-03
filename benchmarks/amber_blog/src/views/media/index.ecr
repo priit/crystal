@@ -1,0 +1,31 @@
+<h1>Medias</h1>
+
+<a href="/medias/new">New Media</a>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>UserId</th>
+      <th>Filename</th>
+      <th>ContentType</th>
+      <th>ByteSize</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @medias.each do |media| %>
+      <tr>
+        <td><%= media.id %></td>
+        <td><%= media.user_id %></td>
+        <td><%= media.filename %></td>
+        <td><%= media.content_type %></td>
+        <td><%= media.byte_size %></td>
+        <td>
+          <a href="/medias/<%= media.id %>">Show</a>
+          <a href="/medias/<%= media.id %>/edit">Edit</a>
+        </td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>

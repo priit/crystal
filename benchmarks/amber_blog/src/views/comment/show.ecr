@@ -1,0 +1,15 @@
+<h1>Comment</h1>
+
+<dl>
+  <dt>PostId</dt>
+  <dd><%= @comment.post_id %></dd>
+  <dt>UserId</dt>
+  <dd><%= @comment.user_id %></dd>
+  <dt>Body</dt>
+  <dd><%= @comment.body %></dd>
+  <dt>Approved</dt>
+  <dd><%= @comment.approved %></dd>
+</dl>
+
+<a href="/comments">Back</a>
+<a href="/comments/<%= @comment.id %>/edit">Edit</a>

@@ -1,0 +1,120 @@
+#!/bin/bash
+set -e
+
+# ==============================================================================
+#  Amber V2 + Grant blog demo for compile benchmarks
+# ==============================================================================
+#
+#  Generates a blog engine with the Amber CLI (`amber new --type web` and
+#  `amber generate scaffold`): 12 blog models with Grant associations, plus
+#  generated `TopicNNN` models up to the requested count.
+#
+#  Usage:
+#    ./scripts/demo_amber_blog.sh <dir> [models]   # models >= 12, default 12
+#
+#  Needs Amber CLI 2.0.6+ (`amber`) and `shards`. Uses Amber 2.0.0-beta.5 (the
+#  generator's pin) and Grant master. With the incremental fork as `crystal`,
+#  also adds return types (strict signatures) in a second commit.
+#
+# ==============================================================================
+
+GRANT_COMMIT=da1e06161148f156dbce262a4a4efcb39cba5ba4
+
+dir=$1
+models=${2:-12}
+if [ -z "$dir" ] || [ "$models" -lt 12 ]; then
+  echo "usage: $0 <dir> [models >= 12]" >&2
+  exit 1
+fi
+
+mkdir -p "$(dirname "$dir")"
+dir=$(cd "$(dirname "$dir")" && pwd)/$(basename "$dir")
+rm -rf "$dir"
+cd "$(dirname "$dir")"
+amber new "$(basename "$dir")" -y --no-deps > /dev/null
+cd "$dir"
+sed -i.bak "s/commit: [0-9a-f]\{40\}/commit: ${GRANT_COMMIT}/" shard.yml && rm shard.yml.bak
+
+scaffold() {
+  amber generate scaffold "$@" > /dev/null || { echo "scaffold $1 failed" >&2; exit 1; }
+}
+
+# Adds lines to a model, after its `timestamps` line.
+model() {
+  local file="src/models/$1.cr"
+  shift
+  local add
+  add=$(printf "\n  %s" "" "$@")
+  awk -v add="$add" '{ print } /^  timestamps$/ { print substr(add, 2) }' "$file" | sed 's/^ *$//' > "$file.tmp" && mv "$file.tmp" "$file"
+}
+
+scaffold User name:string:required email:email:required bio:text admin:bool
+scaffold Profile user_id:int64 website:string location:string avatar_url:string
+scaffold Category name:string:required slug:string:required description:text
+scaffold Tag name:string:required slug:string:required
+scaffold Post user_id:int64 category_id:int64 title:string:required slug:string:required body:text:required published:bool published_at:time
+scaffold PostTag post_id:int64 tag_id:int64
+scaffold Comment post_id:int64 user_id:int64 body:text:required approved:bool
+scaffold Page title:string:required slug:string:required body:text position:integer
+scaffold Media user_id:int64 filename:string:required content_type:string byte_size:int64
+scaffold Subscriber email:email:required confirmed:bool
+scaffold Setting key:string:required value:text
+scaffold MenuItem page_id:int64 label:string:required url:string position:integer
+
+# The generated form passes a `Time?` to `text_field` (Amber CLI 2.0.6).
+sed -i.bak 's/value: @post.published_at?)/value: @post.published_at?.try(\&.to_s("%Y-%m-%dT%H:%M")))/' src/views/post/_form.ecr && rm src/views/post/_form.ecr.bak
+
+model user \
+  "has_one :profile" "has_many :posts" "has_many :comments" "has_many :media" \
+  "" \
+  "def display_name : String" "  admin? ? \"#{name} (admin)\" : name" "end" \
+  "" \
+  "def admin? : Bool" "  admin == true" "end"
+model profile "belongs_to :user, foreign_key: user_id"
+model category "has_many :posts"
+model tag "has_many :post_tags" "has_many :posts, through: :post_tags"
+model post \
+  "belongs_to :user, foreign_key: user_id" "belongs_to :category, foreign_key: category_id" \
+  "has_many :comments" "has_many :post_tags" "has_many :tags, through: :post_tags" \
+  "" \
+  "def excerpt(length : Int32 = 200) : String" "  body.size > length ? body[0, length] + \"...\" : body" "end" \
+  "" \
+  "def published? : Bool" "  published == true" "end"
+model post_tag "belongs_to :post, foreign_key: post_id" "belongs_to :tag, foreign_key: tag_id"
+model comment "belongs_to :post, foreign_key: post_id" "belongs_to :user, foreign_key: user_id"
+model page "has_many :menu_items"
+model media "belongs_to :user, foreign_key: user_id"
+model menu_item "belongs_to :page, foreign_key: page_id"
+
+for i in $(seq 13 "$models"); do
+  name=$(printf "Topic%03d" "$i")
+  scaffold "$name" user_id:int64 category_id:int64 title:string:required body:text position:integer published:bool
+  model "$(printf "topic%03d" "$i")" \
+    "belongs_to :user, foreign_key: user_id" "belongs_to :category, foreign_key: category_id"
+done
+
+shards install > /dev/null
+
+# The development database and the binary `crystal run` writes.
+printf '\n# Demo\n/db/*.db*\n/%s\n' "$(basename "$dir")" >> .gitignore
+
+annotate() {
+  if crystal tool annotate --help > /dev/null 2>&1; then
+    crystal tool annotate > /dev/null
+  fi
+}
+
+# On its own, commit the generated app, then its strict signatures (the
+# incremental fork's return types) as a second commit, so they're one diff.
+# Inside another repository, just add the return types.
+if git -C .. rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+  annotate
+else
+  git init -q
+  git add -A
+  git -c user.name=demo -c user.email=demo@example.com commit -qm "Generated by Amber CLI"
+  annotate
+  git diff --quiet || git -c user.name=demo -c user.email=demo@example.com commit -qam "Add return types (crystal tool annotate)"
+fi
+
+echo "$dir: $models models, $(find src -name '*.cr' -o -name '*.ecr' | wc -l | tr -d ' ') source files"

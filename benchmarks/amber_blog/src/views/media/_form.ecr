@@ -1,0 +1,34 @@
+<% unless @errors.empty? %>
+  <div class="form-errors" role="alert">
+    <p>Please correct the following:</p>
+    <ul>
+      <% @errors.each do |error| %>
+        <li><%= error.field %>: <%= error.message || "is invalid" %></li>
+      <% end %>
+    </ul>
+  </div>
+<% end %>
+
+<form action="<%= @media.persisted? ? "/medias/#{@media.id}" : "/medias" %>" method="POST">
+  <%= csrf_tag %>
+  <% if @media.persisted? %>
+    <%= hidden_field("_method", "PATCH") %>
+  <% end %>
+  <div class="form-group">
+    <%= label("user_id") %>
+    <%= number_field("user_id", value: @media.user_id?) %>
+  </div>
+  <div class="form-group">
+    <%= label("filename") %>
+    <%= text_field("filename", value: @media.filename?) %>
+  </div>
+  <div class="form-group">
+    <%= label("content_type") %>
+    <%= text_field("content_type", value: @media.content_type?) %>
+  </div>
+  <div class="form-group">
+    <%= label("byte_size") %>
+    <%= number_field("byte_size", value: @media.byte_size?) %>
+  </div>
+  <%= submit_button("Save") %>
+</form>

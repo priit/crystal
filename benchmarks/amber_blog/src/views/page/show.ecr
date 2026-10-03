@@ -1,0 +1,15 @@
+<h1>Page</h1>
+
+<dl>
+  <dt>Title</dt>
+  <dd><%= @page.title %></dd>
+  <dt>Slug</dt>
+  <dd><%= @page.slug %></dd>
+  <dt>Body</dt>
+  <dd><%= @page.body %></dd>
+  <dt>Position</dt>
+  <dd><%= @page.position %></dd>
+</dl>
+
+<a href="/pages">Back</a>
+<a href="/pages/<%= @page.id %>/edit">Edit</a>

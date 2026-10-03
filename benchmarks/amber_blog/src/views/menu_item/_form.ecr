@@ -1,0 +1,34 @@
+<% unless @errors.empty? %>
+  <div class="form-errors" role="alert">
+    <p>Please correct the following:</p>
+    <ul>
+      <% @errors.each do |error| %>
+        <li><%= error.field %>: <%= error.message || "is invalid" %></li>
+      <% end %>
+    </ul>
+  </div>
+<% end %>
+
+<form action="<%= @menu_item.persisted? ? "/menu_items/#{@menu_item.id}" : "/menu_items" %>" method="POST">
+  <%= csrf_tag %>
+  <% if @menu_item.persisted? %>
+    <%= hidden_field("_method", "PATCH") %>
+  <% end %>
+  <div class="form-group">
+    <%= label("page_id") %>
+    <%= number_field("page_id", value: @menu_item.page_id?) %>
+  </div>
+  <div class="form-group">
+    <%= label("label") %>
+    <%= text_field("label", value: @menu_item.label?) %>
+  </div>
+  <div class="form-group">
+    <%= label("url") %>
+    <%= text_field("url", value: @menu_item.url?) %>
+  </div>
+  <div class="form-group">
+    <%= label("position") %>
+    <%= number_field("position", value: @menu_item.position?) %>
+  </div>
+  <%= submit_button("Save") %>
+</form>

@@ -1,0 +1,27 @@
+<h1>Tags</h1>
+
+<a href="/tags/new">New Tag</a>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Name</th>
+      <th>Slug</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @tags.each do |tag| %>
+      <tr>
+        <td><%= tag.id %></td>
+        <td><%= tag.name %></td>
+        <td><%= tag.slug %></td>
+        <td>
+          <a href="/tags/<%= tag.id %>">Show</a>
+          <a href="/tags/<%= tag.id %>/edit">Edit</a>
+        </td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>

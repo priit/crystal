@@ -1,0 +1,31 @@
+<h1>Pages</h1>
+
+<a href="/pages/new">New Page</a>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Title</th>
+      <th>Slug</th>
+      <th>Body</th>
+      <th>Position</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @pages.each do |page| %>
+      <tr>
+        <td><%= page.id %></td>
+        <td><%= page.title %></td>
+        <td><%= page.slug %></td>
+        <td><%= page.body %></td>
+        <td><%= page.position %></td>
+        <td>
+          <a href="/pages/<%= page.id %>">Show</a>
+          <a href="/pages/<%= page.id %>/edit">Edit</a>
+        </td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>

@@ -1,0 +1,19 @@
+name: amber_blog
+
+server:
+  host: 127.0.0.1
+  port: 3000
+  secret_key_base: "f1d4e180c016582e1f607e2617dae5a286c9e86537634ec8780cff8a1a3beb39"
+
+database:
+  url: "sqlite3:./db/amber_blog_development.db"
+
+session:
+  key: "amber_blog.session"
+  store: "signed_cookie"
+  adapter: "memory"
+  expires: 0
+
+logging:
+  severity: "debug"
+  colorize: true

@@ -1,0 +1,27 @@
+<h1>Settings</h1>
+
+<a href="/settings/new">New Setting</a>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Key</th>
+      <th>Value</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @settings.each do |setting| %>
+      <tr>
+        <td><%= setting.id %></td>
+        <td><%= setting.key %></td>
+        <td><%= setting.value %></td>
+        <td>
+          <a href="/settings/<%= setting.id %>">Show</a>
+          <a href="/settings/<%= setting.id %>/edit">Edit</a>
+        </td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>

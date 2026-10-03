@@ -1,0 +1,30 @@
+<% unless @errors.empty? %>
+  <div class="form-errors" role="alert">
+    <p>Please correct the following:</p>
+    <ul>
+      <% @errors.each do |error| %>
+        <li><%= error.field %>: <%= error.message || "is invalid" %></li>
+      <% end %>
+    </ul>
+  </div>
+<% end %>
+
+<form action="<%= @category.persisted? ? "/categories/#{@category.id}" : "/categories" %>" method="POST">
+  <%= csrf_tag %>
+  <% if @category.persisted? %>
+    <%= hidden_field("_method", "PATCH") %>
+  <% end %>
+  <div class="form-group">
+    <%= label("name") %>
+    <%= text_field("name", value: @category.name?) %>
+  </div>
+  <div class="form-group">
+    <%= label("slug") %>
+    <%= text_field("slug", value: @category.slug?) %>
+  </div>
+  <div class="form-group">
+    <%= label("description") %>
+    <%= text_area("description", value: @category.description?) %>
+  </div>
+  <%= submit_button("Save") %>
+</form>

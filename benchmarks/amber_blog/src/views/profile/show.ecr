@@ -1,0 +1,15 @@
+<h1>Profile</h1>
+
+<dl>
+  <dt>UserId</dt>
+  <dd><%= @profile.user_id %></dd>
+  <dt>Website</dt>
+  <dd><%= @profile.website %></dd>
+  <dt>Location</dt>
+  <dd><%= @profile.location %></dd>
+  <dt>AvatarUrl</dt>
+  <dd><%= @profile.avatar_url %></dd>
+</dl>
+
+<a href="/profiles">Back</a>
+<a href="/profiles/<%= @profile.id %>/edit">Edit</a>

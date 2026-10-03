@@ -1,0 +1,34 @@
+<% unless @errors.empty? %>
+  <div class="form-errors" role="alert">
+    <p>Please correct the following:</p>
+    <ul>
+      <% @errors.each do |error| %>
+        <li><%= error.field %>: <%= error.message || "is invalid" %></li>
+      <% end %>
+    </ul>
+  </div>
+<% end %>
+
+<form action="<%= @comment.persisted? ? "/comments/#{@comment.id}" : "/comments" %>" method="POST">
+  <%= csrf_tag %>
+  <% if @comment.persisted? %>
+    <%= hidden_field("_method", "PATCH") %>
+  <% end %>
+  <div class="form-group">
+    <%= label("post_id") %>
+    <%= number_field("post_id", value: @comment.post_id?) %>
+  </div>
+  <div class="form-group">
+    <%= label("user_id") %>
+    <%= number_field("user_id", value: @comment.user_id?) %>
+  </div>
+  <div class="form-group">
+    <%= label("body") %>
+    <%= text_area("body", value: @comment.body?) %>
+  </div>
+  <div class="form-group">
+    <%= checkbox("approved", checked: @comment.approved? || false, value: "true") %>
+    <%= label("approved") %>
+  </div>
+  <%= submit_button("Save") %>
+</form>

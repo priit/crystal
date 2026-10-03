@@ -1,0 +1,31 @@
+<h1>Comments</h1>
+
+<a href="/comments/new">New Comment</a>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>PostId</th>
+      <th>UserId</th>
+      <th>Body</th>
+      <th>Approved</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @comments.each do |comment| %>
+      <tr>
+        <td><%= comment.id %></td>
+        <td><%= comment.post_id %></td>
+        <td><%= comment.user_id %></td>
+        <td><%= comment.body %></td>
+        <td><%= comment.approved %></td>
+        <td>
+          <a href="/comments/<%= comment.id %>">Show</a>
+          <a href="/comments/<%= comment.id %>/edit">Edit</a>
+        </td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>

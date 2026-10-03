@@ -1,0 +1,27 @@
+<h1>Subscribers</h1>
+
+<a href="/subscribers/new">New Subscriber</a>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Email</th>
+      <th>Confirmed</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @subscribers.each do |subscriber| %>
+      <tr>
+        <td><%= subscriber.id %></td>
+        <td><%= subscriber.email %></td>
+        <td><%= subscriber.confirmed %></td>
+        <td>
+          <a href="/subscribers/<%= subscriber.id %>">Show</a>
+          <a href="/subscribers/<%= subscriber.id %>/edit">Edit</a>
+        </td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>

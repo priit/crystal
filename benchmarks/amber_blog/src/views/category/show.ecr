@@ -1,0 +1,13 @@
+<h1>Category</h1>
+
+<dl>
+  <dt>Name</dt>
+  <dd><%= @category.name %></dd>
+  <dt>Slug</dt>
+  <dd><%= @category.slug %></dd>
+  <dt>Description</dt>
+  <dd><%= @category.description %></dd>
+</dl>
+
+<a href="/categories">Back</a>
+<a href="/categories/<%= @category.id %>/edit">Edit</a>

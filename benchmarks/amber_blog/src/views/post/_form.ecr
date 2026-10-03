@@ -1,0 +1,46 @@
+<% unless @errors.empty? %>
+  <div class="form-errors" role="alert">
+    <p>Please correct the following:</p>
+    <ul>
+      <% @errors.each do |error| %>
+        <li><%= error.field %>: <%= error.message || "is invalid" %></li>
+      <% end %>
+    </ul>
+  </div>
+<% end %>
+
+<form action="<%= @post.persisted? ? "/posts/#{@post.id}" : "/posts" %>" method="POST">
+  <%= csrf_tag %>
+  <% if @post.persisted? %>
+    <%= hidden_field("_method", "PATCH") %>
+  <% end %>
+  <div class="form-group">
+    <%= label("user_id") %>
+    <%= number_field("user_id", value: @post.user_id?) %>
+  </div>
+  <div class="form-group">
+    <%= label("category_id") %>
+    <%= number_field("category_id", value: @post.category_id?) %>
+  </div>
+  <div class="form-group">
+    <%= label("title") %>
+    <%= text_field("title", value: @post.title?) %>
+  </div>
+  <div class="form-group">
+    <%= label("slug") %>
+    <%= text_field("slug", value: @post.slug?) %>
+  </div>
+  <div class="form-group">
+    <%= label("body") %>
+    <%= text_area("body", value: @post.body?) %>
+  </div>
+  <div class="form-group">
+    <%= checkbox("published", checked: @post.published? || false, value: "true") %>
+    <%= label("published") %>
+  </div>
+  <div class="form-group">
+    <%= label("published_at") %>
+    <%= text_field("published_at", value: @post.published_at?.try(&.to_s("%Y-%m-%dT%H:%M"))) %>
+  </div>
+  <%= submit_button("Save") %>
+</form>

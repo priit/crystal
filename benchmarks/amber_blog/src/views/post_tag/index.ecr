@@ -1,0 +1,27 @@
+<h1>PostTags</h1>
+
+<a href="/post_tags/new">New PostTag</a>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>PostId</th>
+      <th>TagId</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @post_tags.each do |post_tag| %>
+      <tr>
+        <td><%= post_tag.id %></td>
+        <td><%= post_tag.post_id %></td>
+        <td><%= post_tag.tag_id %></td>
+        <td>
+          <a href="/post_tags/<%= post_tag.id %>">Show</a>
+          <a href="/post_tags/<%= post_tag.id %>/edit">Edit</a>
+        </td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>

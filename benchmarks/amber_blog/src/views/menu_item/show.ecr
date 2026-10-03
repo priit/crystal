@@ -1,0 +1,15 @@
+<h1>MenuItem</h1>
+
+<dl>
+  <dt>PageId</dt>
+  <dd><%= @menu_item.page_id %></dd>
+  <dt>Label</dt>
+  <dd><%= @menu_item.label %></dd>
+  <dt>Url</dt>
+  <dd><%= @menu_item.url %></dd>
+  <dt>Position</dt>
+  <dd><%= @menu_item.position %></dd>
+</dl>
+
+<a href="/menu_items">Back</a>
+<a href="/menu_items/<%= @menu_item.id %>/edit">Edit</a>
