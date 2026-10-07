@@ -682,6 +682,12 @@ class Crystal::CodeGenVisitor
     assign pointer, var_type, arg.type, value
   end
 
+  # The module code is being generated into.
+  def current_module_info : ModuleInfo
+    @modules.each_value { |module_info| return module_info if module_info.mod == @llvm_mod }
+    @main_module_info
+  end
+
   def module_name(module_info : ModuleInfo) : String
     module_info.mod == @main_mod ? "" : module_info.mod.name
   end

@@ -239,8 +239,14 @@ module Crystal
       @observers.push observer
     end
 
+    # The nodes whose type depends on this one's.
+    def observers : SmallNodeList
+      @observers
+    end
+
     def remove_observer(observer)
-      @observers.try &.reject! &.same?(observer)
+      # Not `@observers.try &.reject!`: that would change a copy of the struct
+      @observers.reject! &.same?(observer)
     end
 
     def set_enclosing_call(enclosing_call)
@@ -350,21 +356,21 @@ module Crystal
     # While `IncrementalSemantic` types this def's body again, the type it
     # had: callers keep seeing it, so the body's intermediate types don't
     # spread through the program. Afterwards the new type is compared with
-    # it (see `type_from_body`).
+    # it (see `type_from_body`), and if it changed the callers are typed
+    # again with it.
     property retyping_type : Type?
 
     def map_type(type)
-      mapped = map_body_type(type)
-      if (retyping_type = @retyping_type) && mapped.implements?(retyping_type)
-        retyping_type
-      else
-        mapped
-      end
+      @retyping_type || map_body_type(type)
     end
 
     # The type this def gets from its body's (and returns') types, by itself.
     def type_from_body : Type?
-      type_from_dependencies.try { |type| map_body_type(type) }
+      type = type_from_dependencies.try { |type| map_body_type(type) }
+      if type && (freeze_type = self.freeze_type)
+        type = restrict_type_to_freeze_type(freeze_type, type)
+      end
+      type
     end
 
     private def map_body_type(type)

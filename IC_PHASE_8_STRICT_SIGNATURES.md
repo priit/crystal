@@ -29,7 +29,7 @@ crysterr, release compilers, same machine (old = installed fork `042293a`):
 | Method body edit | 19.6s | 11.9s |
 | Slang template edit | 19.2s | 11.4s |
 
-## Step 1: Strict signatures (default; `--no-strict-signatures` or `CRYSTAL_STRICT_SIGNATURES=0` opt out)
+## Step 1: Strict signatures (opt-in since step 4: `--strict-signatures` or `CRYSTAL_STRICT_SIGNATURES=1`)
 
 Applies to the code under the current directory, except `lib/` and anything
 found through `CRYSTAL_PATH` (the standard library, shards): they aren't
@@ -73,7 +73,7 @@ with `--strict-signatures` and with the stock compiler.
 
 ## Step 3: Typing only what changed (`crystal watch`, in progress)
 
-`crystal watch` keeps the typed program between builds in strict mode. When a
+`crystal watch` keeps the typed program between builds. When a
 change only edits method bodies, `IncrementalSemantic`
 (`semantic/incremental_semantic.cr`) types just those methods' instantiations
 again, then `Compiler#codegen_again` generates code from the kept program.
@@ -82,8 +82,7 @@ How it decides:
 
 - A changed file must print the same with every method body removed
   (`skeleton`), otherwise more than bodies changed: full compilation.
-- Each changed method must be strict code with a declared return type, and
-  not `initialize`, a macro def or a method taking a block (those are typed
+- Each changed method must not be `initialize`, a macro def or a method taking a block (those are typed
   together with their callers). Methods that only moved (lines added above
   them) are typed again too, so their nodes get the new locations.
 - `Call#instantiate` records how each instantiation was made (self type,
@@ -92,7 +91,8 @@ How it decides:
   it), after disconnecting the old body's nodes from the type graph, then runs
   `FixMissingTypes` and the cleanup transformer on it.
 - The type must stay the same (the firewall guarantees it, except for
-  `NoReturn`). In strict code a method with a declared return type always
+  `NoReturn`; without it the new type is compared with the old one, and
+  since step 4 a changed type types the callers again). In strict code a method with a declared return type always
   counts as raising, so a body that starts raising doesn't change how callers
   call it.
 
@@ -152,6 +152,70 @@ crysterr, release compiler, `crystal watch`:
 | Signature change (full compilation) | 11.9s | 10.9s | 10.9s |
 
 The partially built server serves the edited pages.
+
+## Step 4: No annotations needed
+
+Measured on crysterr with its 840 return types removed (8 kept: overrides
+of shard methods declaring one, and two recursive methods upstream Crystal
+can't infer), against the annotated code in strict mode, release compiler:
+
+| | annotated, strict | no return types |
+|---|---|---|
+| Cold build | 33.3 s / 33.6 s | 33.0 s / 32.5 s |
+| Semantic (main) | 19.3 s | 18.1-18.8 s |
+| Method body, template (watch) | 0.36-0.74 s | 0.36-0.73 s |
+
+Annotations don't make typing faster: every instantiation is inferred
+either way. And `IncrementalSemantic` already handled methods without a
+return type: it holds the old type while typing the new body
+(`Def#retyping_type`) and compares. So the return type firewall only
+mattered when an edit changed a method's type. Strict signatures became
+opt-in, and that case is handled instead:
+
+- **Callers are typed again** (`IncrementalSemantic#propagate`). The
+  observers of an instantiation whose type changed are calls; each is
+  looked up in an index of the calls of every recorded instantiation's body
+  (built on the first type change of an `apply`). Those callers' bodies are
+  disconnected, the new type is set, and the callers are typed again,
+  holding their own old types; whichever of them changed type goes through
+  the same, until types stop changing (early cutoff). A caller that can't
+  be typed on its own (top-level code, a const initializer, a method with a
+  block, `initialize`, a forwarding expansion for default arguments) or more
+  than `MAX_PROPAGATED` (500) callers need a full compilation. An error in a
+  caller can't be undone like an error in the edited body: the next build
+  is full.
+- **Recursion.** Without the firewall, a recursive method's new body is
+  typed against its old type, so an edit narrowing it (`Int32 | Char` to
+  `Int32`) would keep the old one; a full compilation found that
+  difference. When the type of an instantiation flows into its own body
+  (walking the observers from the def), editing it needs a full
+  compilation. Upstream Crystal often needs a return type there anyway.
+- **`ASTNode#remove_observer` removed nothing**: `@observers.try &.reject!`
+  changed a copy of the `SmallNodeList` struct. The bodies replaced by
+  incremental typing stayed connected to the type graph and kept updating;
+  the old type of a caller could already be the new one.
+
+Proc literals: their functions were generated into the main module, named
+after their line (`~procProc(...)@file:line`). A partial codegen reuses the
+main module's object, so an edited proc body kept its old code, and lines
+added above a proc made a new name, which needed a full codegen (~5 s on
+crysterr's controllers). They're now generated, with internal linkage, in
+the module of the code creating them, and regenerated with it.
+
+crysterr without return types, `crystal watch`, verified with
+`CRYSTAL_INCREMENTAL_SEMANTIC_VERIFY=1` (4793 typed methods match a full
+compilation after each step):
+
+| Change | Before step 4 | Step 4 |
+|---|---|---|
+| Controller action (+1 line) | 5.4 s (full codegen: proc names) | **1.5-2.4 s** (16 methods typed, 17 modules) |
+| 3 lines added mid-file | 5.5 s (full codegen: proc names) | **0.75 s** (13 methods, 21 modules) |
+| `resolved?` returns `Bool?` instead of `Bool` | 9.2-11 s (full compilation) | **1.4-1.6 s** (6 methods typed again, 18 modules) |
+| Method body, template | 0.36-0.8 s | 0.42-0.82 s |
+
+The annotated code with `--strict-signatures` gives the same times (the
+controller and lines-added rows improve the same way). The Amber blog
+benchmark (`scripts/benchmark_amber_blog.sh`) serves every edit.
 
 ## Usage
 

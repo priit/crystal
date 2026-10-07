@@ -245,6 +245,95 @@ describe "Code gen: partial codegen" do
     output.should eq("<new>\n")
   end
 
+  it "regenerates a proc literal edited in a method" do
+    reason, output = rebuild_partially(<<-CRYSTAL, <<-CRYSTAL)
+      class Greeter
+        def greet : String
+          f = -> { "old" }
+          f.call
+        end
+      end
+
+      puts Greeter.new.greet
+      CRYSTAL
+      class Greeter
+        def greet : String
+          f = -> { "new" }
+          f.call
+        end
+      end
+
+      puts Greeter.new.greet
+      CRYSTAL
+    reason.should be_nil
+    output.should eq("new\n")
+  end
+
+  it "generates only the changed module when lines added move a proc literal" do
+    reason, output = rebuild_partially(<<-CRYSTAL, <<-CRYSTAL)
+      class Greeter
+        def greet : String
+          f = ->(x : Int32) { x.to_s }
+          f.call(1)
+        end
+      end
+
+      puts Greeter.new.greet
+      CRYSTAL
+      class Greeter
+        def greet : String
+          x = 2
+          f = ->(x : Int32) { x.to_s }
+          f.call(x)
+        end
+      end
+
+      puts Greeter.new.greet
+      CRYSTAL
+    reason.should be_nil
+    output.should eq("2\n")
+  end
+
+  it "generates the callers again when an inferred return type changes" do
+    reason, output = rebuild_partially(<<-CRYSTAL, <<-CRYSTAL, strict: false)
+      class Model
+        def initialize(@n : Int32)
+        end
+
+        def value
+          @n + 1
+        end
+      end
+
+      class View
+        def render(model)
+          model.value.to_s
+        end
+      end
+
+      puts View.new.render(Model.new(1))
+      CRYSTAL
+      class Model
+        def initialize(@n : Int32)
+        end
+
+        def value
+          @n > 5 ? @n : "small"
+        end
+      end
+
+      class View
+        def render(model)
+          model.value.to_s
+        end
+      end
+
+      puts View.new.render(Model.new(1))
+      CRYSTAL
+    reason.should be_nil
+    output.should eq("small\n")
+  end
+
   it "falls back to a full codegen for a new symbol" do
     reason, output = rebuild_partially(<<-CRYSTAL, <<-CRYSTAL)
       class Namer

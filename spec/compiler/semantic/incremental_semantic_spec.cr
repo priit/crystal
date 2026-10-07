@@ -511,11 +511,112 @@ describe IncrementalSemantic do
     incremental.full_codegen_reason.should be_nil
   end
 
-  it "needs a full compilation when an inferred return type changes" do
+  it "types the callers again when an inferred return type changes" do
+    incremental = assert_incremental(
+      {"main.cr" => <<-CRYSTAL},
+        require "primitives"
+
+        class Problem
+          def resolved?
+            1 > 0
+          end
+
+          def label
+            x = resolved?
+            x
+          end
+
+          def describe
+            label ? 1 : 2
+          end
+        end
+
+        Problem.new.describe
+        CRYSTAL
+      {"main.cr" => <<-CRYSTAL}, strict: false)
+        require "primitives"
+
+        class Problem
+          def resolved?
+            1 > 0 ? true : nil
+          end
+
+          def label
+            x = resolved?
+            x
+          end
+
+          def describe
+            label ? 1 : 2
+          end
+        end
+
+        Problem.new.describe
+        CRYSTAL
+    # `describe` keeps its type: its callers aren't typed again
+    incremental.retyped.map(&.name).should eq(["resolved?", "label", "describe"])
+  end
+
+  it "types the callers again when an inferred return type narrows" do
+    incremental = assert_incremental(
+      {"main.cr" => <<-CRYSTAL},
+        require "primitives"
+
+        class Problem
+          def resolved?
+            1 > 0 ? true : nil
+          end
+
+          def label
+            resolved?
+          end
+        end
+
+        class Report
+          def line(problem : Problem)
+            problem.label ? 1 : 2
+          end
+        end
+
+        Report.new.line(Problem.new)
+        CRYSTAL
+      {"main.cr" => <<-CRYSTAL}, strict: false)
+        require "primitives"
+
+        class Problem
+          def resolved?
+            1 > 0
+          end
+
+          def label
+            resolved?
+          end
+        end
+
+        class Report
+          def line(problem : Problem)
+            problem.label ? 1 : 2
+          end
+        end
+
+        Report.new.line(Problem.new)
+        CRYSTAL
+    incremental.retyped.map(&.name).should eq(["resolved?", "label", "line"])
+  end
+
+  it "needs a full compilation when a changed type reaches top-level code" do
     assert_unsupported(
       {"main.cr" => %(require "primitives"\ndef foo(x)\n  x + 1\nend\nfoo(1)\n)},
       {"main.cr" => %(require "primitives"\ndef foo(x)\n  x > 0 ? x : nil\nend\nfoo(1)\n)},
-      "now has type", strict: false)
+      "used outside a method", strict: false)
+  end
+
+  it "needs a full compilation for a recursive method without the firewall" do
+    # Typed against its old type `Int32 | Char`, the new body would keep it
+    assert_unsupported(
+      {"main.cr" => %(require "primitives"\nclass Rec\n  def self.f(n : Int32)\n    n == 0 ? (n > 5 ? 'a' : 1) : f(n - 1)\n  end\nend\nRec.f(3)\n)},
+      {"main.cr" => %(require "primitives"\nclass Rec\n  def self.f(n : Int32)\n    n == 0 ? 1 : f(n - 1)\n  end\nend\nRec.f(3)\n)},
+      "is recursive", strict: false)
   end
 
   it "needs a full codegen for a trivial body without the firewall" do

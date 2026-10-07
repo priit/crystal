@@ -9,11 +9,16 @@ module Crystal
   #
   # * The file's structure is unchanged: everything but method bodies prints
   #   the same, so the same types, methods, macros and requires exist.
-  # * Each instantiation typed again has the same type as before. With
-  #   strict signatures and a declared return type that's guaranteed (the
-  #   return type firewall); otherwise the type the new body infers is
-  #   compared with the old one, which callers keep seeing meanwhile
-  #   (`Def#retyping_type`).
+  # * Each instantiation typed again has the same type as before, or its
+  #   callers are typed again too. With strict signatures and a declared
+  #   return type the type can't change (the return type firewall);
+  #   otherwise the type the new body infers is compared with the old one,
+  #   which callers keep seeing meanwhile (`Def#retyping_type`). When it
+  #   changed, the methods calling it are typed again with the new type, and
+  #   so on while types change (early cutoff). A caller that can't be typed
+  #   on its own (top-level code, a method with a block...) needs a full
+  #   compilation, and so does a recursive method without the firewall: its
+  #   new type would be checked against itself.
   # * It doesn't start raising where it didn't (callers inside a `rescue`
   #   call it differently). In strict code it always counts as raising.
   #
@@ -31,6 +36,13 @@ module Crystal
 
     # Instantiations typed again by the last `apply`.
     getter retyped = [] of Def
+
+    @call_owners : Hash(UInt64, {Def, Program::InstantiationRecord})?
+    @propagated = false
+
+    # At most this many callers are typed again because a type changed;
+    # beyond that a full compilation is about as fast.
+    MAX_PROPAGATED = 500
 
     # Why the last `apply` needs a full codegen, if it does: codegen inlines
     # instance variable getters at their call sites, so callers' code depends
@@ -51,6 +63,8 @@ module Crystal
     def apply(contents : Hash(String, String), changed_inputs : Enumerable(String) = [] of String) : Nil
       @retyped.clear
       @full_codegen_reason = nil
+      @call_owners = nil
+      @propagated = false
       changed = [] of {Def, Def}
 
       contents.each do |filename, new_source|
@@ -73,21 +87,24 @@ module Crystal
       undo = [] of {Def, ASTNode, Location?, Location?}
       @consistent = false
       begin
+        type_changed = [] of Def
         changed.each do |original, new_def|
           records = @program.instantiation_records.try &.[original]?
           undo << {original, original.body, original.location, original.end_location}
           update_original(original, new_def)
-          records.try &.each { |record| retype(original, record) }
+          records.try &.each { |record| type_changed << record.typed_def if retype(original, record) }
         end
         expanding.each do |original|
-          @program.instantiation_records.try &.[original]?.try &.each { |record| retype(original, record) }
+          @program.instantiation_records.try &.[original]?.try &.each { |record| type_changed << record.typed_def if retype(original, record) }
         end
+        propagate(type_changed)
       rescue ex : CodeError
         # The edit has an error: type the old bodies again so the program is
         # the last good one, and the fix can be applied incrementally too.
         # (A template's error can't be undone: expanding it again reads the
-        # new template.)
-        @consistent = expanding.empty? && undo(undo)
+        # new template; nor can an error in callers typed again because a
+        # type changed.)
+        @consistent = expanding.empty? && !@propagated && undo(undo)
 
         # Instance and class variable types are guessed from the assignments
         # in every method: assigning one a new type is an error here, but
@@ -121,15 +138,107 @@ module Crystal
 
     private def undo(undo : Array({Def, ASTNode, Location?, Location?})) : Bool
       @retyped.clear
+      @call_owners = nil
+      type_changed = [] of Def
       undo.reverse_each do |original, body, location, end_location|
         original.body = body
         original.location = location
         original.end_location = end_location
-        @program.instantiation_records.try &.[original]?.try &.each { |record| retype(original, record) }
+        @program.instantiation_records.try &.[original]?.try &.each { |record| type_changed << record.typed_def if retype(original, record) }
       end
+      propagate(type_changed)
       @full_codegen_reason = nil
       true
     rescue Exception
+      false
+    end
+
+    # Types again the callers of the instantiations whose type changed, then
+    # theirs while their types change too. Their bodies are disconnected
+    # before the new type is set, so the old bodies don't react to it.
+    private def propagate(type_changed : Array(Def)) : Nil
+      count = 0
+      until type_changed.empty?
+        typed_def = type_changed.shift
+        new_type = typed_def.type_from_body
+        next if new_type == typed_def.type?
+
+        unless new_type
+          raise Unsupported.new("#{typed_def.location}: #{typed_def.short_reference} has no type anymore")
+        end
+        callers = callers(typed_def, new_type)
+        callers.each { |original, _| check_retypeable(original) }
+        count += callers.size
+        if count > MAX_PROPAGATED
+          raise Unsupported.new("#{typed_def.short_reference} now has type #{new_type}, was #{typed_def.type?}, and more than #{MAX_PROPAGATED} callers would be typed again")
+        end
+        @propagated = true
+        callers.each { |_, record| disconnect(record.typed_def.body) }
+
+        typed_def.type = new_type
+        callers.each do |original, record|
+          type_changed << record.typed_def if retype(original, record)
+        end
+      end
+    end
+
+    # The recorded instantiations whose bodies call *typed_def*.
+    private def callers(typed_def : Def, new_type : Type?) : Array({Def, Program::InstantiationRecord})
+      owners = call_owners
+      callers = [] of {Def, Program::InstantiationRecord}
+      typed_def.observers.each do |observer|
+        owner = owners[observer.object_id]? if observer.is_a?(Call)
+        unless owner
+          raise Unsupported.new("#{typed_def.location}: #{typed_def.short_reference} now has type #{new_type}, was #{typed_def.type?}, and is used outside a method that can be typed again")
+        end
+        callers << owner unless callers.any? { |_, record| record.typed_def.same?(owner[1].typed_def) }
+      end
+      callers
+    end
+
+    # Each call of the recorded instantiations' bodies, by `object_id`: the
+    # instantiation it's in.
+    private def call_owners : Hash(UInt64, {Def, Program::InstantiationRecord})
+      @call_owners ||= begin
+        owners = {} of UInt64 => {Def, Program::InstantiationRecord}
+        @program.instantiation_records.try &.each do |original, records|
+          records.each { |record| index_calls(owners, original, record) }
+        end
+        owners
+      end
+    end
+
+    private def index_calls(owners : Hash(UInt64, {Def, Program::InstantiationRecord}), original : Def, record : Program::InstantiationRecord) : Nil
+      record.typed_def.body.accept CallIndexer.new(owners, {original, record})
+    end
+
+    private class CallIndexer < Visitor
+      def initialize(@owners : Hash(UInt64, {Def, Program::InstantiationRecord}), @owner : {Def, Program::InstantiationRecord})
+      end
+
+      def visit(node : Call)
+        @owners[node.object_id] = @owner
+        true
+      end
+
+      def visit(node : ASTNode)
+        true
+      end
+    end
+
+    # Whether *typed_def*'s type flows into its own body: a recursive call,
+    # directly or through other methods. Its new type would then be checked
+    # against the old one it was typed with, so an edit narrowing it would
+    # go unnoticed.
+    private def self_dependent?(typed_def : Def) : Bool
+      visited = Set(UInt64).new
+      pending = typed_def.observers.to_a
+      while node = pending.pop?
+        return true if node.same?(typed_def)
+        next unless visited.add?(node.object_id)
+        node.observers.each { |observer| pending << observer }
+        node.enclosing_call.try { |call| pending << call }
+      end
       false
     end
 
@@ -519,7 +628,10 @@ module Crystal
       end
     end
 
-    private def retype(original : Def, record : Program::InstantiationRecord) : Nil
+    # Types *record*'s instantiation again with *original*'s body. Returns
+    # whether its type changed (see `propagate`); callers keep seeing the
+    # old one until then.
+    private def retype(original : Def, record : Program::InstantiationRecord) : Bool
       typed_def = record.typed_def
       old_type = typed_def.type?
       old_raises = typed_def.raises?
@@ -573,8 +685,11 @@ module Crystal
       end
 
       new_type = firewall ? typed_def.type? : typed_def.type_from_body
-      unless new_type == old_type
+      if firewall && new_type != old_type
         raise Unsupported.new("#{original.location}: #{typed_def.short_reference} now has type #{new_type}, was #{old_type}")
+      end
+      if !firewall && self_dependent?(typed_def)
+        raise Unsupported.new("#{original.location}: #{typed_def.short_reference} is recursive and has no return type firewall")
       end
       if typed_def.raises? && !old_raises
         raise Unsupported.new("#{original.location}: #{typed_def.short_reference} now raises")
@@ -585,6 +700,8 @@ module Crystal
       end
 
       @retyped << typed_def
+      @call_owners.try { |owners| index_calls(owners, original, record) }
+      new_type != old_type
     end
 
     # Every typed method of the code under *root*: its signature, and its

@@ -20,11 +20,12 @@ It's built for both ways of writing code today:
 - **With an LLM (Claude Code, other agents):** the agent edits several files
   without a build per step (`crystal watch hold`), then gets its errors in
   under a second (`crystal watch build`) instead of waiting for a full
-  compile. Explicit signatures tell it what each method returns without
-  reading the body.
+  compile.
 - **By hand:** keep `crystal run` open in a terminal; save a file and the
-  program restarts with the change before you've switched windows. Declared
-  return types read as documentation and put type errors where you made them.
+  program restarts with the change before you've switched windows.
+
+Your code stays ordinary Crystal: no type annotations are required, and
+everything that compiles with upstream Crystal compiles here the same way.
 
 Both can work on the same project at once if needed: the agent edits, you keep
 `crystal run` open, and it rebuilds once when the agent is done.
@@ -45,17 +46,9 @@ Both can work on the same project at once if needed: the agent edits, you keep
    compiler), and if linking programs fails on bundled libraries such as
    `libgc`, copy `lib/` from your upstream Crystal install into the prefix.
 
-2. **Migrate your project** to strict signatures (every `def` declares its
-   return type), once:
-
-   ```sh
-   crystal tool annotate --dry-run   # the return types it would add
-   crystal tool annotate             # add them
-   crystal build                     # lists what's left to type by llm or hand
-   ```
-
-   Commit first, so the change is easy to review. Not ready? Use
-   `--no-strict-signatures` (or `CRYSTAL_STRICT_SIGNATURES=0`) meanwhile.
+2. **Nothing to migrate.** Run `crystal run` (or `crystal watch`) in your
+   project. Return types are optional, as in upstream Crystal; see
+   [How it stays fast without type annotations](#how-it-stays-fast-without-type-annotations).
 
 ## Prepare Claude Code (or another agent)
 
@@ -87,9 +80,6 @@ And add this to the project's `CLAUDE.md` (or `AGENTS.md` for other agents):
 ## Crystal toolchain (crystal-alpha fork)
 - `crystal watch --help` must list `hold` and `build`; if not, the upstream
   compiler is on PATH: tell the user.
-- Every `def` here declares its return type (strict signatures). For a new
-  method, write the type yourself; for many, run `crystal tool annotate` and
-  type what it lists. Don't use `--no-strict-signatures` to get past errors.
 - The user keeps `crystal run` (or `crystal watch`) running. Don't start
   another build or watcher; check with `crystal watch status`.
 - After your edits, run `crystal watch build`: it builds what changed
@@ -99,8 +89,10 @@ And add this to the project's `CLAUDE.md` (or `AGENTS.md` for other agents):
 - Specs: `crystal spec --affected` runs just the examples your edits reach
   (fast with the watcher); run plain `crystal spec` before finishing.
   A single file or example: `crystal spec [spec/file_spec.cr:LINE]`.
-- Editing method bodies and adding methods is fastest; changing signatures,
-  removing methods or adding types is fine but rebuilds fully (~10s).
+- Editing method bodies and adding methods is fastest (a body edit that
+  changes what a method returns also types its callers again, still
+  fast); changing signatures, removing methods or adding types is fine
+  but rebuilds fully (~10s).
 - Format: `crystal tool format`.
 ~~~~
 
@@ -132,59 +124,49 @@ crystal watch build         # build now, wait, print errors (exit 0 ok, 1 failed
 crystal watch status        # result of the last build
 ```
 
-What rebuilds fast (~0.3s): method bodies, methods added to a class, struct or
-module (unless they override another or a macro lists the type's methods),
-templates (Slang, ECR) rendered inside a method, and the fix after a type
-error. A signature change, a new type, a removed method, or a file read by a
-top-level macro (e.g. i18n locales) rebuilds fully (~10s).
+What rebuilds fast (~0.3-1s): method bodies (also when what the method
+returns changes: its callers are typed again), methods added to a class,
+struct or module (unless they override another or a macro lists the type's
+methods), templates (Slang, ECR) rendered inside a method, and the fix after
+a type error. A signature change, a new type, a removed method, a changed
+return type reaching top-level code, a recursive method without a return
+type, or a file read by a top-level macro (e.g. i18n locales) rebuilds
+fully (~10s).
 
-## Why strict signatures
+## How it stays fast without type annotations
 
-Every `def` in your project (not `lib/`, not the standard library) declares
-its return type, and that declared type is what callers see. A body edit then
-can't change any type elsewhere in the program, so only that method is typed
-and code-generated again. Annotated code still compiles with upstream Crystal.
+`crystal watch` and `crystal run` keep the typed program in memory. When
+you edit a method body, only that method is typed again, and only the LLVM
+modules of the types it belongs to are generated again; every other
+module's object file is reused.
 
-How it works: `IC_PHASE_8_STRICT_SIGNATURES.md`. Incremental caching and
+What keeps an edit local is a check, not an annotation: after typing the new
+body, the compiler compares the type it returns with the old one. Usually
+it's the same, and nothing else needs to change (*early cutoff*). When it
+changed, the methods calling it are typed again with the new type, then
+theirs, until the types stop changing. Measured on an ~8k line Amber app
+(crysterr) with all 840 of its return types removed, body and template
+edits rebuild exactly as fast as with them, and a full build isn't faster
+with them either (33 s both ways): Crystal infers every method anyway.
+
+Return types are still worth writing where they document intent, and a
+declared type keeps a body edit from reaching callers when the new type
+fits it. `--strict-signatures` (or `CRYSTAL_STRICT_SIGNATURES=1`) is the
+old opt-in mode: every `def` in your project must declare its return type,
+and the declared type is what callers see (the *return type firewall*).
+`crystal tool annotate` adds the types for you. How it works:
+`IC_PHASE_8_STRICT_SIGNATURES.md`. Incremental caching and
 `--no-incremental`: `INCREMENTAL_PLAN.md`.
 
 ## What's different from upstream Crystal
 
-> [!WARNING]
-> **Strict signatures are a breaking language change for code you compile
-> as your own project.** Shards you depend on (in `lib/`) are exempt and
-> compile unchanged. But developing a shard, or an app, means annotating it:
-> of 43 popular shards whose specs we could compile, 42 had methods without a
-> return type (median 17, up to 847), and in 5 (amber, asset_pipeline,
-> lucky, shards, vips) existing return types broke callers that relied on
-> the narrower inferred type (point 2 below). `crystal tool annotate`
-> does most of the first part; the second needs a human (or an agent) to
-> make the declared types precise. Use `--no-strict-signatures` for code
-> you don't want to migrate.
-
 Things to check when switching a project or system to this compiler:
 
-1. **Strict signatures are on (breaking).** In your project's code (the
-   current directory, except `lib/` and anything on `CRYSTAL_PATH`) every
-   `def` must declare its return type, or the build fails with a list of the
-   methods missing one. Run `crystal tool annotate`, or opt out with
-   `--no-strict-signatures` / `CRYSTAL_STRICT_SIGNATURES=0` (e.g. in CI for a
-   project not migrated yet). `initialize` and methods generated by macros
-   are exempt.
-2. **A declared return type is what callers see.** Upstream, `def foo : Int32?`
-   whose body returns an `Int32` has type `Int32` at call sites; here it's
-   `Int32?`. Code relying on the narrower type (arithmetic on the result,
-   `typeof`, an overload only the narrow type matches) fails to compile:
-   declare the precise type (`: Int32`) or handle the wider one. A class
-   (`: Animal`) becomes its virtual type (`Animal+`), dispatching at runtime
-   to the subclass as before. Not affected: `NoReturn` bodies, and return
-   types that aren't value types (`: Array` without type arguments, modules,
-   `self` in a module).
-3. **Incremental compilation is on**, cached in `CRYSTAL_CACHE_DIR` (default
+1. **Incremental compilation is on**, cached in `CRYSTAL_CACHE_DIR` (default
    `~/.cache/crystal`): `crystal build` with nothing changed only checks
    file fingerprints and macro inputs. If something looks stale, build with
    `--no-incremental` (or `CRYSTAL_INCREMENTAL=0`) and please report it.
-4. **`run` macros must name what they read.** A build that used `{{ run(...) }}`
+2. **`run` macros must name what they read.** A build that used `{{ run(...) }}`
    is now skipped when nothing changed, judging by the program's sources, the
    arguments that are files or directories, and the files the program lists
    in the file named by the `CRYSTAL_MACRO_RUN_DEPFILE` environment variable
@@ -192,22 +174,23 @@ Things to check when switching a project or system to this compiler:
    path, a glob of its own) should list them there; or set
    `CRYSTAL_MACRO_RUN_TRUST=0` to never skip such builds. ECR, Slang and
    i18n embeds are covered by their arguments.
-5. **`crystal run` without a file** builds the shard's main file
+3. **`crystal run` without a file** builds the shard's main file
    (`shard.yml`) and, in a terminal, keeps running and restarting on
    changes; it no longer exits after one run. Scripts and CI (no terminal),
    `crystal run file.cr` and `crystal run --no-watch` run once.
-6. **`.crystal-watch/`** appears in projects where `crystal run` or
+4. **`.crystal-watch/`** appears in projects where `crystal run` or
    `crystal watch` ran (it holds the build status; it ignores itself in git).
-7. **Processes are spawned with `posix_spawn`** on Linux (glibc) instead of
+5. **Processes are spawned with `posix_spawn`** on Linux (glibc) instead of
    `fork` + `exec`, when no `chdir:` is given: much faster from a large
    process, same redirections, environment and signal handling. Code that
    relied on running Crystal code in the child between `fork` and `exec`
    can't, but the standard library never offered that for `Process.new`.
-8. In strict code, a method with a declared return type always counts as
-   possibly raising (calls to it inside `begin`/`rescue` use `invoke`), and a
-   body that is just a literal or `self` isn't inlined at its call sites:
-   no change in behavior, slightly slower non-release builds. (Release builds
-   inline through LLVM as before.)
+6. **Only with `--strict-signatures`** (opt-in): every `def` in your project
+   (not `lib/`, not the standard library) must declare its return type, and
+   a declared return type is what callers see: upstream, `def foo : Int32?`
+   whose body returns an `Int32` has type `Int32` at call sites; in strict
+   mode it's `Int32?`. Such methods always count as possibly raising, and a
+   body that is just a literal or `self` isn't inlined at its call sites.
 
 ## Benchmark: an Amber V2 blog
 
@@ -219,22 +202,22 @@ running server shows a change:
 
 | Change | Crystal 1.21.0 | This fork, `crystal run` | Faster |
 |---|---|---|---|
-| A model method body | 37.3 s | 1.5 s | 24× |
-| A controller action | 36.7 s | 1.9 s | 19× |
-| A template (ECR) | 37.1 s | 1.3 s | 28× |
-| First build (empty cache) | 57.2 s | 28.2 s | 2× |
+| A model method body | 32.1 s | 1.5 s | 21× |
+| A controller action | 31.8 s | 1.8 s | 17× |
+| A template (ECR) | 32.0 s | 1.3 s | 24× |
+| First build (empty cache) | 53.6 s | 29.0 s | 2× |
 
 `crystal run` is the everyday loop: started in the project in a terminal,
 it rebuilds and restarts the server on every save (`--no-watch` runs
 once). For Crystal 1.21.0 it's the `crystal build` time, before restarting
 the server (its `crystal run` builds the same way). The fork's
-`crystal build`, without `crystal run` running, takes 18-20 s for these
+`crystal build`, without `crystal run` running, takes 18-19 s for these
 edits (2× faster) and 0.08 s when nothing changed.
 
 The script checks after each edit that the server serves the new code.
 Crystal 1.21.0 varied between 48 and 57 s cold and 28 and 40 s per rebuild
 over three runs; the fork's times were stable. Tested on Ubuntu 26.04.1
-LTS, x86_64 (Linux kernel 7.0.0-31-generic) with LLVM 21.1.8, AMD Ryzen 7
+LTS, x86_64 (Linux kernel 7.0.0-34-generic) with LLVM 21.1.8, AMD Ryzen 7
 PRO 6850U (8 cores).
 
 Check it yourself:

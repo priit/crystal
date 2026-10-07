@@ -923,8 +923,14 @@ module Crystal
         node.def.set_type node.return_type
       end
 
-      the_fun = codegen_fun fun_literal_name, node.def, context.type, fun_module_info: @main_module_info, is_fun_literal: true, is_closure: is_closure
-      the_fun = check_main_fun fun_literal_name, the_fun
+      # The proc's function goes in the module of the code creating it, with
+      # internal linkage: it's regenerated together with that code (a
+      # partial codegen reuses the main module), and its name, which has the
+      # proc's line, isn't something other modules link against.
+      fun_module_info = current_module_info
+      the_fun = codegen_fun fun_literal_name, node.def, context.type, fun_module_info: fun_module_info, is_fun_literal: true, is_closure: is_closure
+      the_fun.func.linkage = LLVM::Linkage::Internal
+      the_fun = check_mod_fun fun_module_info.mod, fun_literal_name, the_fun
 
       set_current_debug_location(node) if @debug.line_numbers?
       fun_ptr = cast_to_void_pointer(the_fun.func)
