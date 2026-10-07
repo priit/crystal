@@ -2,8 +2,7 @@ require "json"
 
 module Crystal::Watch
   # Lets another program (an editor, an AI coding agent) tell `crystal watch`
-  # and `crystal run` when to build, through files in `.crystal-watch/` in
-  # the project:
+  # when to build, through files in `.crystal-watch/` in the project:
   #
   # * `hold`: while it exists the watcher doesn't build; changes pile up.
   #   An agent creates it before editing (`crystal watch hold`) and removes

@@ -21,14 +21,14 @@ It's built for both ways of writing code today:
   without a build per step (`crystal watch hold`), then gets its errors in
   under a second (`crystal watch build`) instead of waiting for a full
   compile.
-- **By hand:** keep `crystal run` open in a terminal; save a file and the
+- **By hand:** keep `crystal watch` open in a terminal; save a file and the
   program restarts with the change before you've switched windows.
 
 Your code stays ordinary Crystal: no type annotations are required, and
 everything that compiles with upstream Crystal compiles here the same way.
 
 Both can work on the same project at once if needed: the agent edits, you keep
-`crystal run` open, and it rebuilds once when the agent is done.
+`crystal watch` open, and it rebuilds once when the agent is done.
 
 ## Setup
 
@@ -46,8 +46,7 @@ Both can work on the same project at once if needed: the agent edits, you keep
    compiler), and if linking programs fails on bundled libraries such as
    `libgc`, copy `lib/` from your upstream Crystal install into the prefix.
 
-2. **Nothing to migrate.** Run `crystal run` (or `crystal watch`) in your
-   project. Return types are optional, as in upstream Crystal; see
+2. **Nothing to migrate.** Run `crystal watch` in your project. Return types are optional, as in upstream Crystal; see
    [How it stays fast without type annotations](#how-it-stays-fast-without-type-annotations).
 
 ## Prepare Claude Code (or another agent)
@@ -80,8 +79,8 @@ And add this to the project's `CLAUDE.md` (or `AGENTS.md` for other agents):
 ## Crystal toolchain (crystal-alpha fork)
 - `crystal watch --help` must list `hold` and `build`; if not, the upstream
   compiler is on PATH: tell the user.
-- The user keeps `crystal run` (or `crystal watch`) running. Don't start
-  another build or watcher; check with `crystal watch status`.
+- The user keeps `crystal watch` running. Don't start another build or
+  watcher; check with `crystal watch status`.
 - After your edits, run `crystal watch build`: it builds what changed
   (usually under a second) and prints the errors; exit 1 = fix them.
   Exit 2 = no watcher: use `crystal build --no-codegen` to type check.
@@ -102,15 +101,14 @@ In a shard, commands find the main file from `shard.yml` (first target's
 `main`, else `src/<name>.cr`):
 
 ```sh
-crystal run      # build, run, rebuild + restart on every change (in a terminal)
-crystal build    # build; skipped if nothing changed
-crystal spec     # run the specs; skipped build if nothing changed
+crystal watch           # build, run, rebuild + restart on every change
+crystal watch --no-run  # rebuild on every change without running (a shard, a CLI tool)
+crystal build           # build; skipped if nothing changed
+crystal run             # build and run once, as upstream
+crystal spec            # run the specs; skipped build if nothing changed
 ```
 
-`crystal run file.cr` runs once as before; `--watch` / `--no-watch` choose.
-`crystal watch` rebuilds without running.
-
-While `crystal run` or `crystal watch` is running, the other commands use it:
+While `crystal watch` is running, the other commands use it:
 `crystal build` gets its up to date executable, and `crystal spec` has it keep
 the spec program typed too, so after an edit the specs rebuild in about a
 second instead of compiling from scratch. Other programs (the hooks above, an
@@ -135,7 +133,7 @@ fully (~10s).
 
 ## How it stays fast without type annotations
 
-`crystal watch` and `crystal run` keep the typed program in memory. When
+`crystal watch` keeps the typed program in memory. When
 you edit a method body, only that method is typed again, and only the LLVM
 modules of the types it belongs to are generated again; every other
 module's object file is reused.
@@ -174,12 +172,11 @@ Things to check when switching a project or system to this compiler:
    path, a glob of its own) should list them there; or set
    `CRYSTAL_MACRO_RUN_TRUST=0` to never skip such builds. ECR, Slang and
    i18n embeds are covered by their arguments.
-3. **`crystal run` without a file** builds the shard's main file
-   (`shard.yml`) and, in a terminal, keeps running and restarting on
-   changes; it no longer exits after one run. Scripts and CI (no terminal),
-   `crystal run file.cr` and `crystal run --no-watch` run once.
-4. **`.crystal-watch/`** appears in projects where `crystal run` or
-   `crystal watch` ran (it holds the build status; it ignores itself in git).
+3. **Commands without a file** (`crystal build`, `crystal run`,
+   `crystal watch`, ...) build the shard's main file (`shard.yml`) instead of
+   printing their usage. `crystal run` still runs once, as upstream.
+4. **`.crystal-watch/`** appears in projects where `crystal watch` ran (it
+   holds the build status; it ignores itself in git).
 5. **Processes are spawned with `posix_spawn`** on Linux (glibc) instead of
    `fork` + `exec`, when no `chdir:` is given: much faster from a large
    process, same redirections, environment and signal handling. Code that
@@ -200,18 +197,18 @@ associations, generated by the Amber CLI (`amber new` and
 101 source files. It's in `benchmarks/amber_blog`. How long until the
 running server shows a change:
 
-| Change | Crystal 1.21.0 | This fork, `crystal run` | Faster |
+| Change | Crystal 1.21.0 | This fork, `crystal watch` | Faster |
 |---|---|---|---|
 | A model method body | 32.1 s | 1.5 s | 21× |
 | A controller action | 31.8 s | 1.8 s | 17× |
 | A template (ECR) | 32.0 s | 1.3 s | 24× |
 | First build (empty cache) | 53.6 s | 29.0 s | 2× |
 
-`crystal run` is the everyday loop: started in the project in a terminal,
-it rebuilds and restarts the server on every save (`--no-watch` runs
-once). For Crystal 1.21.0 it's the `crystal build` time, before restarting
-the server (its `crystal run` builds the same way). The fork's
-`crystal build`, without `crystal run` running, takes 18-19 s for these
+`crystal watch` is the everyday loop: started in the project in a
+terminal, it rebuilds and restarts the server on every save. For Crystal
+1.21.0 it's the `crystal build` time, before restarting the server (its
+`crystal run` builds the same way). The fork's
+`crystal build`, without `crystal watch` running, takes 18-19 s for these
 edits (2× faster) and 0.08 s when nothing changed.
 
 The script checks after each edit that the server serves the new code.

@@ -224,15 +224,17 @@ target in `shard.yml`, otherwise `src/<name>.cr` (`Crystal.project_main_file`).
 So `crystal build`, `crystal run`, `crystal watch` and `crystal tool annotate`
 need no file argument.
 
-`crystal run` without a file, in a terminal, keeps running like
-`crystal watch --run`: on each change it rebuilds (incrementally when only
-method bodies changed) and restarts the program. `--watch` does this for an
-explicit file too, `--no-watch` runs once. Scripts, pipes and CI (no
-terminal) run once as before.
+`crystal watch` rebuilds on each change (incrementally when only method
+bodies changed) and restarts the program; `--no-run` only builds (a shard,
+a command line tool, a server running elsewhere; `--run` is accepted as
+before). `crystal run` runs once, as upstream: for a while it kept running
+without a file in a terminal, but upstream `crystal run` means one run and
+frameworks' tools (`amber watch`, which runs the server) are named after
+that, so watching stays with `crystal watch`.
 
 ### Templates and other macro inputs
 
-`crystal watch` and `crystal run` also watch the files macros read
+`crystal watch` also watches the files macros read
 (templates, `run` programs' data). `Program#record_external_macro_input`
 records which method's body expanded the macro that read each one; when such
 a file changes, those methods are typed again (expanding the macro again) and

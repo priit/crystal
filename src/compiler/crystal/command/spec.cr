@@ -102,7 +102,7 @@ class Crystal::Command
                                            Process.executable_path
                                          end
 
-    # A `crystal run` or `crystal watch` of this project keeps the spec
+    # A `crystal watch` of this project keeps the spec
     # program typed: it rebuilds just what changed.
     if watcher_compatible?(compiler) && (response = spec_through_watcher(target_filenames))
       unless response.ok

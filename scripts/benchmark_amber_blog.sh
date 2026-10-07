@@ -15,7 +15,7 @@ set -e
 #    template    the heading of `post/index.ecr`
 #
 #  Rows: upstream `crystal build`, the fork's `crystal build`, and the fork's
-#  `crystal run --watch` (the everyday loop: the time from saving to the
+#  `crystal watch` (the everyday loop: the time from saving to the
 #  server answering with the edit).
 #
 #  Usage:
@@ -102,12 +102,12 @@ bench_build() {
   row "$label" $cold $noop $model $controller $template "$c1 $c2"
 }
 
-# Row with `crystal run --watch`: time from the edit to the server serving it.
+# Row with `crystal watch`: time from the edit to the server serving it.
 bench_run() {
   local label=$1 cr=$2 s
   export CRYSTAL_CACHE_DIR="$WORK/cache-$label"
   s=$(now)
-  "$cr" run --watch > "$WORK/run.log" 2>&1 &
+  "$cr" watch > "$WORK/run.log" 2>&1 &
   watcher=$!
   wait_for "<h1>Posts</h1>" || { cat "$WORK/run.log" >&2; exit 1; }
   local cold=$(ms $s $(now))
@@ -138,4 +138,4 @@ echo
 printf "%-26s %8s %8s %8s %8s %8s   %s\n" "seconds" cold nochange model ctrl template served
 bench_build "upstream crystal build" "$STOCK_CRYSTAL"
 bench_build "fork crystal build" "$CRYSTAL"
-bench_run "fork crystal run (watch)" "$CRYSTAL"
+bench_run "fork crystal watch" "$CRYSTAL"

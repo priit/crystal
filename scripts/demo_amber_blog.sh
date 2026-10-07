@@ -95,7 +95,7 @@ done
 
 shards install > /dev/null
 
-# The development database and the binary `crystal run` writes.
+# The development database and the binary `crystal watch` writes.
 printf '\n# Demo\n/db/*.db*\n/%s\n' "$(basename "$dir")" >> .gitignore
 
 annotate() {

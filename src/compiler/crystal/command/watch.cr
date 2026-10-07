@@ -28,7 +28,7 @@ class Crystal::Command
     compiler = new_compiler
     compiler.progress_tracker = @progress_tracker
     link_flags = [] of String
-    run_mode = false
+    run_mode = true
     clear_screen = false
     debounce_ms = 300
     force_polling = false
@@ -47,8 +47,12 @@ class Crystal::Command
         USAGE
       setup_simple_compiler_options compiler, opts
 
-      opts.on("--run", "Run the compiled binary after each successful build") do
+      opts.on("--run", "Run the compiled program after each successful build (default)") do
         run_mode = true
+      end
+
+      opts.on("--no-run", "Only build: don't run the program (a shard, a command line tool, a server running elsewhere)") do
+        run_mode = false
       end
 
       opts.on("--clear", "Clear the terminal before each compilation") do
@@ -145,7 +149,7 @@ class Crystal::Command
 
     status = Watch::Coordination.read_status(root)
     unless status && watcher_alive?(status)
-      STDERR.puts "No `crystal watch` or `crystal run` is watching #{root}"
+      STDERR.puts "No `crystal watch` is watching #{root}"
       return 2
     end
 
