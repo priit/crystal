@@ -33,6 +33,7 @@ class Crystal::Command
     debounce_ms = 300
     force_polling = false
     poll_interval_ms = 1000
+    specified_output = nil.as(String?)
 
     option_parser = parse_with_crystal_opts do |opts|
       opts.banner = <<-USAGE
@@ -53,6 +54,10 @@ class Crystal::Command
 
       opts.on("--no-run", "Only build: don't run the program (a shard, a command line tool, a server running elsewhere)") do
         run_mode = false
+      end
+
+      opts.on("-o FILE", "--output FILE", "Where to write the program (default: the main file's name, in the current directory)") do |output|
+        specified_output = output
       end
 
       opts.on("--clear", "Clear the terminal before each compilation") do
@@ -117,6 +122,10 @@ class Crystal::Command
     output_extension = compiler.codegen_target.executable_extension
     first_filename = sources.first.filename
     output_filename = "#{::Path[first_filename].stem}#{output_extension}"
+    if output = specified_output
+      output_filename = output
+      Dir.mkdir_p(::Path[output].parent)
+    end
 
     file_watcher = Watch::FileWatcher.create(
       force_polling: force_polling,
