@@ -92,6 +92,10 @@ And add this to the project's `CLAUDE.md` (or `AGENTS.md` for other agents):
   changes what a method returns also types its callers again, still
   fast); changing signatures, removing methods or adding types is fine
   but rebuilds fully (~10s).
+- If the watcher runs with `--log FILE`, the program's output and the
+  builds are in FILE and only the problems in FILE.errors.log
+  (`crystal watch status` names them); the last build is what follows the
+  last `=== build N started ===` line.
 - Format: `crystal tool format`.
 ~~~~
 
@@ -103,6 +107,7 @@ In a shard, commands find the main file from `shard.yml` (first target's
 ```sh
 crystal watch           # build, run, rebuild + restart on every change
 crystal watch --no-run  # rebuild on every change without running (a shard, a CLI tool)
+crystal watch -o bin/app --log log/development.log  # where the program goes; its output and errors also to a log
 crystal build           # build; skipped if nothing changed
 crystal run             # build and run once, as upstream
 crystal spec            # run the specs; skipped build if nothing changed
@@ -129,7 +134,10 @@ methods), templates (Slang, ECR) rendered inside a method, and the fix after
 a type error. A signature change, a new type, a removed method, a changed
 return type reaching top-level code, a recursive method without a return
 type, or a file read by a top-level macro (e.g. i18n locales) rebuilds
-fully (~10s).
+fully (~10s). A top-level `run` macro (a generator writing the files a
+`require` reads) is run again when its input changes; if its output is the
+same and it adds or removes no file, the files it rewrote rebuild as
+ordinary edits.
 
 ## How it stays fast without type annotations
 
@@ -175,14 +183,18 @@ Things to check when switching a project or system to this compiler:
 3. **Commands without a file** (`crystal build`, `crystal run`,
    `crystal watch`, ...) build the shard's main file (`shard.yml`) instead of
    printing their usage. `crystal run` still runs once, as upstream.
-4. **`.crystal-watch/`** appears in projects where `crystal watch` ran (it
+4. **A full compilation restarts the watcher** in place (`exec`, same
+   pid, same arguments) so only the new program is held in memory; the
+   build number, holds and logs carry on. `CRYSTAL_WATCH_REEXEC=0` keeps
+   it in the same process.
+5. **`.crystal-watch/`** appears in projects where `crystal watch` ran (it
    holds the build status; it ignores itself in git).
-5. **Processes are spawned with `posix_spawn`** on Linux (glibc) instead of
+6. **Processes are spawned with `posix_spawn`** on Linux (glibc) instead of
    `fork` + `exec`, when no `chdir:` is given: much faster from a large
    process, same redirections, environment and signal handling. Code that
    relied on running Crystal code in the child between `fork` and `exec`
    can't, but the standard library never offered that for `Process.new`.
-6. **Only with `--strict-signatures`** (opt-in): every `def` in your project
+7. **Only with `--strict-signatures`** (opt-in): every `def` in your project
    (not `lib/`, not the standard library) must declare its return type, and
    a declared return type is what callers see: upstream, `def foo : Int32?`
    whose body returns an `Int32` has type `Int32` at call sites; in strict
