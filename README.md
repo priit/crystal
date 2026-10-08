@@ -4,6 +4,10 @@ A Crystal compiler fork where editing a method rebuilds in a fraction of a
 second. On a ~8k line Amber app, a method body or template edit rebuilds in
 ~0.3s instead of 12s, and a rebuild without changes is skipped (0.07s).
 
+**Based on:** Crystal 1.21.1 plus upstream `master` up to
+[`bdfcb3685`](https://github.com/crystal-lang/crystal/commit/bdfcb3685)
+(2026-10-08); `crystal --version` reports `1.22.0-dev`.
+
 Even in an LLM-driven world, clear and maintainable source code is still
 valuable. I'm not a big fan of LLMs blindly turning everything into very
 verbose Assembly or low-level Rust. The compiler should handle the lower-level
