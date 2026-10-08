@@ -28,7 +28,7 @@
       class InotifyWatcher < FileWatcher
         # The inotify file descriptor
         @inotify_fd : Int32
-        # IO wrapper for blocking reads
+        # IO wrapper to wait on the event loop for events
         @inotify_io : IO::FileDescriptor
         # Maps directory path -> watch descriptor
         @dir_watches : Hash(String, Int32) = {} of String => Int32
@@ -43,6 +43,11 @@
             raise RuntimeError.from_errno("inotify_init1")
           end
           @inotify_io = IO::FileDescriptor.new(@inotify_fd)
+          # The wrapper makes an fd that is no pipe, socket or terminal
+          # blocking; the reads below rely on it not blocking: a read that
+          # waits holds the thread, and with it the fibers forwarding the
+          # running program's output, until a file changes.
+          IO::FileDescriptor.set_blocking(@inotify_fd, false)
           @inotify_io.read_timeout = 1.second
         end
 
