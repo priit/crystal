@@ -42,7 +42,7 @@
           if @inotify_fd == -1
             raise RuntimeError.from_errno("inotify_init1")
           end
-          @inotify_io = IO::FileDescriptor.new(@inotify_fd, blocking: false)
+          @inotify_io = IO::FileDescriptor.new(@inotify_fd)
           @inotify_io.read_timeout = 1.second
         end
 
