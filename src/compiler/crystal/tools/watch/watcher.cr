@@ -248,7 +248,11 @@ module Crystal
       end
 
       private def compile_fully(sources : Array(Compiler::Source)) : Compiler::Result
+        # Let the previous program go first: a large program kept while the
+        # new one is typed and generated would take twice the memory.
         @incremental_semantic = nil
+        @result = nil
+        GC.collect
         @compiler.keep_typed_program = true
         result = @compiler.compile_configure_program(sources, @output_filename) do |program|
           program.instantiation_records = {} of Def => Array(Program::InstantiationRecord)

@@ -523,7 +523,7 @@ module Crystal
     private def new_program(sources)
       @parse_cache.reset_stats if @incremental
 
-      @program = program = Program.new
+      program = Program.new
       program.compiler = self
       program.filename = sources.first.filename
       program.codegen_target = codegen_target

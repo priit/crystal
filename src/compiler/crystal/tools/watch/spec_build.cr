@@ -53,7 +53,11 @@ module Crystal
           end
         end
 
+        # The previous program goes before the new one is compiled (see
+        # `Watcher#compile_fully`).
         @incremental = nil
+        @result = nil
+        GC.collect
         compiler.keep_typed_program = true
         result = compiler.compile_configure_program([@source], @output) do |program|
           program.instantiation_records = {} of Def => Array(Program::InstantiationRecord)
