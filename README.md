@@ -1,8 +1,9 @@
 # Crystal Alpha — fast rebuilds fork
 
 A Crystal compiler fork where editing a method rebuilds in a fraction of a
-second. On a ~8k line Amber app, a method body or template edit rebuilds in
-~0.3s instead of 12s, and a rebuild without changes is skipped (0.07s).
+second. On an Amber V2 blog (101 files, [benchmark](#benchmark-an-amber-v2-blog)),
+the running server shows a method body edit in 0.6 s and a template edit in
+1.3 s instead of 36 s, and a build without changes is skipped (0.06 s).
 
 **Based on:** Crystal 1.21.1 plus upstream `master` up to
 [`bdfcb3685`](https://github.com/crystal-lang/crystal/commit/bdfcb3685)
@@ -23,7 +24,7 @@ It's built for both ways of writing code today:
 
 - **With an LLM (Claude Code, other agents):** the agent edits several files
   without a build per step (`crystal watch hold`), then gets its errors in
-  under a second (`crystal watch build`) instead of waiting for a full
+  a second or two (`crystal watch build`) instead of waiting for a full
   compile.
 - **By hand:** keep `crystal watch` open in a terminal; save a file and the
   program restarts with the change before you've switched windows.
@@ -86,7 +87,7 @@ And add this to the project's `CLAUDE.md` (or `AGENTS.md` for other agents):
 - The user keeps `crystal watch` running. Don't start another build or
   watcher; check with `crystal watch status`.
 - After your edits, run `crystal watch build`: it builds what changed
-  (usually under a second) and prints the errors; exit 1 = fix them.
+  (usually a second or two) and prints the errors; exit 1 = fix them.
   Exit 2 = no watcher: use `crystal build --no-codegen` to type check.
 - Without the hooks, run `crystal watch hold claude` before editing.
 - Specs: `crystal spec --affected` runs just the examples your edits reach
@@ -95,7 +96,7 @@ And add this to the project's `CLAUDE.md` (or `AGENTS.md` for other agents):
 - Editing method bodies and adding methods is fastest (a body edit that
   changes what a method returns also types its callers again, still
   fast); changing signatures, removing methods or adding types is fine
-  but rebuilds fully (~10s).
+  but rebuilds fully (a full compilation, ~20 s on a 100 file app).
 - If the watcher runs with `--log FILE`, the program's output and the
   builds are in FILE and only the problems in FILE.errors.log
   (`crystal watch status` names them); the last build is what follows the
@@ -131,14 +132,14 @@ crystal watch build         # build now, wait, print errors (exit 0 ok, 1 failed
 crystal watch status        # result of the last build
 ```
 
-What rebuilds fast (~0.3-1s): method bodies (also when what the method
+What rebuilds fast (~0.6-3 s on the blog): method bodies (also when what the method
 returns changes: its callers are typed again), methods added to a class,
 struct or module (unless they override another or a macro lists the type's
 methods), templates (Slang, ECR) rendered inside a method, and the fix after
 a type error. A signature change, a new type, a removed method, a changed
 return type reaching top-level code, a recursive method without a return
 type, or a file read by a top-level macro (e.g. i18n locales) rebuilds
-fully (~10s). A top-level `run` macro (a generator writing the files a
+fully (~18 s on the blog). A top-level `run` macro (a generator writing the files a
 `require` reads) is run again when its input changes; if its output is the
 same and it adds or removes no file, the files it rewrote rebuild as
 ordinary edits.
@@ -154,10 +155,8 @@ What keeps an edit local is a check, not an annotation: after typing the new
 body, the compiler compares the type it returns with the old one. Usually
 it's the same, and nothing else needs to change (*early cutoff*). When it
 changed, the methods calling it are typed again with the new type, then
-theirs, until the types stop changing. Measured on an ~8k line Amber app
-(crysterr) with all 840 of its return types removed, body and template
-edits rebuild exactly as fast as with them, and a full build isn't faster
-with them either (33 s both ways): Crystal infers every method anyway.
+theirs, until the types stop changing. So return types don't make
+rebuilds or full builds faster: Crystal infers every method anyway.
 
 Return types are still worth writing where they document intent, and a
 declared type keeps a body edit from reaching callers when the new type
@@ -215,21 +214,26 @@ running server shows a change:
 
 | Change | Crystal 1.21.0 | This fork, `crystal watch` | Faster |
 |---|---|---|---|
-| A model method body | 32.1 s | 1.5 s | 21× |
-| A controller action | 31.8 s | 1.8 s | 17× |
-| A template (ECR) | 32.0 s | 1.3 s | 24× |
-| First build (empty cache) | 53.6 s | 29.0 s | 2× |
+| A model method body | 36.0 s | 0.6 s | 56× |
+| A controller action | 35.9 s | 2.7 s | 13× |
+| A template (ECR) | 35.5 s | 1.3 s | 26× |
+| First build (empty cache) | 57.8 s | 29.0 s | 2× |
 
 `crystal watch` is the everyday loop: started in the project in a
 terminal, it rebuilds and restarts the server on every save. For Crystal
 1.21.0 it's the `crystal build` time, before restarting the server (its
 `crystal run` builds the same way). The fork's
-`crystal build`, without `crystal watch` running, takes 18-19 s for these
-edits (2× faster) and 0.08 s when nothing changed.
+`crystal build`, without `crystal watch` running, takes 17-20 s for these
+edits (2× faster) and 0.06 s when nothing changed. With `crystal watch`
+running, a change it can't apply in place (a changed signature) takes
+about 18 s, and `crystal spec` after a method body edit about 0.8 s
+(20-22 s for its first build).
 
 The script checks after each edit that the server serves the new code.
-Crystal 1.21.0 varied between 48 and 57 s cold and 28 and 40 s per rebuild
-over three runs; the fork's times were stable. Tested on Ubuntu 26.04.1
+The numbers are the middle of three runs (2026-10-08, the fork at
+`1ac762b36`): Crystal 1.21.0 took 57-58 s cold and 35-39 s per rebuild,
+the fork's `crystal watch` 0.64 s for every model edit and 2.3-2.8 s for
+the controller. Tested on Ubuntu 26.04.1
 LTS, x86_64 (Linux kernel 7.0.0-34-generic) with LLVM 21.1.8, AMD Ryzen 7
 PRO 6850U (8 cores).
 
