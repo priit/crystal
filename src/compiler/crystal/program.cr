@@ -85,6 +85,15 @@ module Crystal
     # (`run`). An incremental build can then never be skipped as a whole.
     property? uses_unverifiable_macro_inputs = false
 
+    # A `run` macro outside a method body, typically a generator writing the
+    # files a `require` then reads. `crystal watch` runs it again when one of
+    # its *input_keys* (its arguments and declared inputs, not its own
+    # sources) changes: as long as it prints the same *stdout*, the files it
+    # rewrote are applied as ordinary source edits.
+    record TopLevelMacroRun, filename : String, args : Array(String), stdout : String, input_keys : Array(String)
+
+    getter top_level_macro_runs = [] of TopLevelMacroRun
+
     # Strict signatures mode (`--strict-signatures`): the directory whose code
     # (except its `lib/`) must declare the return type of every method, and in
     # which a declared return type is the type callers see. `nil` when off.

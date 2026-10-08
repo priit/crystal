@@ -313,7 +313,7 @@ module Crystal
     # declared in its depfile (see `Program::MACRO_RUN_DEPFILE_ENV`). That
     # covers the ECR, Slang and i18n embed programs. `CRYSTAL_MACRO_RUN_TRUST=0`
     # restores the conservative behavior: never skip a build that used `run`.
-    private def record_macro_run_inputs(result, run_args)
+    private def record_macro_run_inputs(filename, result, run_args)
       if ENV["CRYSTAL_MACRO_RUN_TRUST"]? == "0"
         @program.uses_unverifiable_macro_inputs = true
         return
@@ -323,14 +323,20 @@ module Crystal
         key, value = IncrementalCache::ExternalInput.read_file(source)
         @program.record_external_macro_input(key, value, @def)
       end
+      input_keys = [] of String
       run_args.each do |arg|
         next unless File.exists?(arg)
         key, value = IncrementalCache::ExternalInput.path(arg)
         @program.record_external_macro_input(key, value, @def)
+        input_keys << key
       end
       result.declared_inputs.each do |path|
         key, value = IncrementalCache::ExternalInput.path(path)
         @program.record_external_macro_input(key, value, @def)
+        input_keys << key
+      end
+      if !@def && result.status.success?
+        @program.top_level_macro_runs << Program::TopLevelMacroRun.new(filename, run_args, result.stdout, input_keys)
       end
     end
 
@@ -355,7 +361,7 @@ module Crystal
       end
 
       result = @program.macro_run(filename, run_args)
-      record_macro_run_inputs(result, run_args)
+      record_macro_run_inputs(filename, result, run_args)
       if result.status.success?
         @last = MacroId.new(result.stdout)
       else

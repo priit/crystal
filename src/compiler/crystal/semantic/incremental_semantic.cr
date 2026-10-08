@@ -59,13 +59,25 @@ module Crystal
     # Applies the new *contents* of some source files (by filename), and
     # changes to files macros read (*changed_inputs*: templates, a `run`
     # program's data): the methods whose body expanded such a macro are
-    # typed again, which expands it again.
+    # typed again, which expands it again. A top-level `run` reading a
+    # changed input runs again first, and the sources it rewrote are applied
+    # too (see `Program::TopLevelMacroRun`).
     def apply(contents : Hash(String, String), changed_inputs : Enumerable(String) = [] of String) : Nil
       @retyped.clear
       @full_codegen_reason = nil
       @call_owners = nil
       @propagated = false
       changed = [] of {Def, Def}
+
+      rerun_keys = rerun_top_level_macro_runs(changed_inputs)
+      unless rerun_keys.empty?
+        contents = contents.dup
+        @sources.each do |filename, source|
+          next if contents.has_key?(filename)
+          current = File.read(filename) rescue raise Unsupported.new("#{filename} was removed by a macro run")
+          contents[filename] = current unless current == source
+        end
+      end
 
       contents.each do |filename, new_source|
         old_source = @sources[filename]? || raise Unsupported.new("#{filename} wasn't part of the program")
@@ -76,7 +88,7 @@ module Crystal
 
       expanding = Set(Def).new.compare_by_identity
       changed_inputs.each do |path|
-        macro_input_users(path).each { |user| expanding << user }
+        macro_input_users(path, rerun_keys).each { |user| expanding << user }
       end
       changed.each { |original, _| expanding.delete(original) }
 
@@ -276,23 +288,74 @@ module Crystal
 
     # The methods whose body expanded a macro that read *path* (or a
     # directory containing it).
-    private def macro_input_users(path : String) : Array(Def)
+    # Inputs of the top-level `run` macros in *rerun_keys* (see
+    # `rerun_top_level_macro_runs`) were dealt with by running them again.
+    private def macro_input_users(path : String, rerun_keys : Set(String) = Set(String).new) : Array(Def)
       path = File.expand_path(path)
       users = [] of Def
       found = false
       @program.external_macro_input_users.each do |key, key_users|
-        kind, _, input = key.partition(':')
-        next unless kind.in?("read_file", "file_exists", "dir_tree")
-        next unless input == path || (kind == "dir_tree" && path.starts_with?(File.join(input, "")))
+        next unless input_key_matches?(key, path)
 
         found = true
-        if key_users.includes?(nil)
+        if key_users.includes?(nil) && !rerun_keys.includes?(key)
           raise Unsupported.new("#{path} is read by a macro outside a method body")
         end
-        key_users.each { |user| users << user.not_nil! }
+        key_users.each { |user| users << user if user }
       end
       raise Unsupported.new("#{path} changed, but no macro of the program read it") unless found
       users
+    end
+
+    # Whether the external input *key* covers the file or directory *path*
+    # (expanded).
+    private def input_key_matches?(key : String, path : String) : Bool
+      kind, _, input = key.partition(':')
+      return false unless kind.in?("read_file", "file_exists", "dir_tree")
+      input == path || (kind == "dir_tree" && path.starts_with?(File.join(input, "")))
+    end
+
+    # Runs again the top-level `run` macros that read one of *changed_inputs*
+    # and returns their input keys. They must print what they printed before
+    # (the code the program was typed with) and leave the program's set of
+    # files as it was: what they rewrote is then applied as source edits.
+    private def rerun_top_level_macro_runs(changed_inputs : Enumerable(String)) : Set(String)
+      rerun_keys = Set(String).new
+      paths = changed_inputs.map { |path| File.expand_path(path) }
+      return rerun_keys if paths.empty?
+
+      @program.top_level_macro_runs.each do |run|
+        next unless run.input_keys.any? { |key| paths.any? { |path| input_key_matches?(key, path) } }
+
+        before = run_output_files(run)
+        result = @program.macro_run(run.filename, run.args)
+        unless result.status.success? && result.stdout == run.stdout
+          raise Unsupported.new("the macro run of #{run.filename} printed other code")
+        end
+        unless run_output_files(run) == before
+          raise Unsupported.new("the macro run of #{run.filename} added or removed files")
+        end
+
+        run.input_keys.each do |key|
+          _, _, input = key.partition(':')
+          new_key, value = IncrementalCache::ExternalInput.path(input)
+          raise Unsupported.new("#{input} changed kind") unless new_key == key
+          @program.external_macro_inputs[key] = value
+          rerun_keys << key
+        end
+      end
+      rerun_keys
+    end
+
+    # The files under the directories a top-level `run` was given.
+    private def run_output_files(run : Program::TopLevelMacroRun) : Array(String)
+      files = [] of String
+      run.input_keys.each do |key|
+        kind, _, input = key.partition(':')
+        next unless kind == "dir_tree"
+        Dir.glob(File.join(::Path[input].to_posix.to_s, "**", "*"), match: :dot_files) { |entry| files << entry }
+      end
+      files.sort!
     end
 
     # The files and directories macros of *program* read, for watching. A

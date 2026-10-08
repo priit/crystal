@@ -58,6 +58,31 @@ private def assert_unsupported(before : Hash(String, String), after : Hash(Strin
   end
 end
 
+# A program whose top-level `run` writes a method per template (tpl/a.txt
+# holds the body of `a`), which a `require` then reads. Yields the
+# incremental semantic and the templates directory.
+private def with_generator(&)
+  generator = <<-CRYSTAL
+    templates, output = ARGV[0], ARGV[1]
+    Dir.glob("\#{templates}/*.txt").each do |path|
+      name = File.basename(path, ".txt")
+      code = "def \#{name} : Int32\\n  \#{File.read(path).strip}\\nend\\n"
+      target = "\#{output}/\#{name}.cr"
+      File.write(target, code) unless File.exists?(target) && File.read(target) == code
+    end
+    CRYSTAL
+
+  with_tempfile("incremental_semantic") do |dir|
+    templates = File.join(dir, "tpl")
+    Dir.mkdir_p(templates)
+    Dir.mkdir_p(File.join(dir, "gen"))
+    File.write(File.join(templates, "a.txt"), "1")
+    main = %({{ run("./generator", #{templates.inspect}, #{File.join(dir, "gen").inspect}) }}\nrequire "./gen/*"\na\n)
+    program = compile_typed(dir, {"generator.cr" => generator, "main.cr" => main}, prelude: "prelude", strict: false)
+    yield IncrementalSemantic.new(program, IncrementalSemantic.file_sources(program)), templates
+  end
+end
+
 describe IncrementalSemantic do
   it "types an edited method body again" do
     incremental = assert_incremental(
@@ -645,5 +670,25 @@ describe IncrementalSemantic do
       {"main.cr" => %(require "primitives"\nlib LibX\n  fun x : NoReturn\nend\ndef foo : Int32\n  1\nend\nfoo)},
       {"main.cr" => %(require "primitives"\nlib LibX\n  fun x : NoReturn\nend\ndef foo : Int32\n  LibX.x\nend\nfoo)},
       "now has type NoReturn")
+  end
+
+  describe "a top-level run macro" do
+    it "runs again and applies the files it rewrote" do
+      with_generator do |incremental, templates|
+        File.write(File.join(templates, "a.txt"), "2")
+        incremental.apply({} of String => String, [File.join(templates, "a.txt")])
+        incremental.retyped.map(&.name).should eq(["a"])
+        incremental.changed_files.should be_empty
+      end
+    end
+
+    it "needs a full compilation when it adds a file" do
+      with_generator do |incremental, templates|
+        File.write(File.join(templates, "b.txt"), "2")
+        expect_raises(IncrementalSemantic::Unsupported, "added or removed files") do
+          incremental.apply({} of String => String, [File.join(templates, "b.txt")])
+        end
+      end
+    end
   end
 end
