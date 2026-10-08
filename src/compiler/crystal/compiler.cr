@@ -372,8 +372,12 @@ module Crystal
         units = codegen program, node, source, output_filename unless @no_codegen || skip_codegen
 
         if @incremental && !skip_codegen
-          @progress_tracker.stage("Signatures") do
-            extract_and_compare_signatures(program, source)
+          # Signatures only feed the `--stats` report: extracting them parses
+          # every file again, so it's skipped otherwise.
+          if @progress_tracker.stats?
+            @progress_tracker.stage("Signatures") do
+              extract_and_compare_signatures(program, source)
+            end
           end
 
           # Without codegen nothing was compiled, so the fingerprints must not
@@ -571,18 +575,14 @@ module Crystal
         location = Location.new(program.filename, 1, 1)
         nodes = Expressions.new([Require.new(prelude).at(location), nodes] of ASTNode)
 
-        # Discover require graph and parse files in parallel if enabled.
-        # Only runs in incremental mode — this double-parses the entire program
-        # to pre-populate the parse cache, which is wasteful for one-shot builds.
+        # Discover the require graph, parsing its files in parallel, so the
+        # semantic phase doesn't parse them one by one. Only runs in
+        # incremental mode.
         if @incremental && parallel_parse?
           begin
-            discoverer = RequireGraphDiscoverer.new(program)
-            discovered_files = discoverer.discover(nodes, prelude)
-
-            unless discovered_files.empty?
-              pre_parsed = parallel_parse_files(program, discovered_files)
-              program.pre_parsed_files = pre_parsed unless pre_parsed.empty?
-            end
+            discoverer = RequireGraphDiscoverer.new(program, n_threads, wants_doc?)
+            pre_parsed = discoverer.discover(nodes, prelude)
+            program.pre_parsed_files = pre_parsed unless pre_parsed.empty?
           rescue ex
             # If discovery or parallel parse fails, fall through to sequential.
             # The semantic phase will parse files normally.
@@ -611,73 +611,6 @@ module Crystal
     # Disabled by setting CRYSTAL_PARALLEL_PARSE=0.
     private def parallel_parse? : Bool
       ENV["CRYSTAL_PARALLEL_PARSE"]? != "0"
-    end
-
-    # Parse an array of filenames in parallel (under preview_mt) or
-    # sequentially. Each thread gets its own StringPool since StringPool
-    # is not thread-safe. Returns a Hash mapping filename to parsed AST.
-    private def parallel_parse_files(program, filenames : Array(String)) : Hash(String, ASTNode)
-      result = {} of String => ASTNode
-
-      {% if flag?(:preview_mt) %}
-        n = {n_threads, filenames.size}.min
-
-        if n > 1
-          mutex = Mutex.new
-          channel = Channel(String).new(n * 2)
-          wg = WaitGroup.new
-
-          n.times do
-            wg.spawn do
-              local_pool = StringPool.new
-              while filename = channel.receive?
-                begin
-                  content = File.read(filename)
-                  parser = Parser.new(content, local_pool)
-                  parser.filename = filename
-                  parser.wants_doc = wants_doc?
-                  parsed = parser.parse
-                  mutex.synchronize { result[filename] = parsed }
-                rescue
-                  # Skip files that fail to parse -- semantic phase handles errors
-                end
-              end
-            end
-          end
-
-          filenames.each { |f| channel.send(f) }
-          channel.close
-          wg.wait
-        else
-          # Single thread -- parse sequentially
-          filenames.each do |filename|
-            begin
-              content = File.read(filename)
-              parser = program.new_parser(content)
-              parser.filename = filename
-              parser.wants_doc = wants_doc?
-              result[filename] = parser.parse
-            rescue
-              # Skip files that fail to parse
-            end
-          end
-        end
-      {% else %}
-        # Sequential fallback without preview_mt
-        filenames.each do |filename|
-          begin
-            content = File.read(filename)
-            parser = program.new_parser(content)
-            parser.filename = filename
-            parser.wants_doc = wants_doc?
-            result[filename] = parser.parse
-          rescue
-            # Skip files that fail to parse
-          end
-        end
-      {% end %}
-
-      result
     end
 
     private def bc_flags_changed?(output_dir)
@@ -1388,10 +1321,17 @@ module Crystal
 
       fingerprints = {} of String => FileFingerprint
       cold_build = @current_cached_data.nil?
+      old_fingerprints = @current_cached_data.try(&.file_fingerprints)
       pre_read = @last_file_contents
       program.requires.each do |filename|
         begin
-          if !cold_build && pre_read && (content = pre_read[filename]?)
+          old_fp = old_fingerprints.try(&.[filename]?)
+          if old_fp && !old_fp.content_hash.empty? && (info = File.info(filename)) &&
+             info.modification_time.to_unix == old_fp.mtime_epoch && info.size == old_fp.byte_size
+            # Unchanged by stat, the way `IncrementalCache.changed_files`
+            # tells: keep the fingerprint instead of hashing the file again
+            fingerprints[filename] = old_fp
+          elsif !cold_build && pre_read && (content = pre_read[filename]?)
             # Reuse content already read during signature extraction
             info = File.info(filename)
             content_hash = Crystal::Digest::MD5.hexdigest(content)

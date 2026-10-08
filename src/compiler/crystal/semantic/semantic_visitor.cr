@@ -87,10 +87,11 @@ abstract class Crystal::SemanticVisitor < Crystal::Visitor
   private def require_file(node : Require, filename : String)
     # Check pre-parsed files first (from parallel parsing, Phase 3).
     # These were parsed during the Parse stage and stored on the program.
-    if pre_parsed = @program.pre_parsed_files.try(&.[filename]?)
+    # A file is required only once, so its AST is taken out rather than
+    # cloned (semantic mutates it).
+    if pre_parsed = @program.pre_parsed_files.try(&.delete(filename))
       begin
-        parsed_nodes = pre_parsed.clone # MUST clone - semantic mutates AST
-        parsed_nodes = @program.normalize(parsed_nodes, inside_exp: inside_exp?)
+        parsed_nodes = @program.normalize(pre_parsed, inside_exp: inside_exp?)
         parsed_nodes.accept self
         return FileNode.new(parsed_nodes, filename)
       rescue ex : CodeError

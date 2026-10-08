@@ -9,32 +9,35 @@ module Crystal
   #
   # The discoverer also handles `{% if flag?(:name) %}` conditionals around
   # requires, since program flags are known at compile start and do not change.
+  #
+  # Each file is parsed once: the discovered files' ASTs are returned so the
+  # semantic phase doesn't parse them again. Files are parsed in waves, the
+  # files of one wave in parallel (unless built with `-Dwithout_mt`); the
+  # requires found in a wave make up the next one.
   class RequireGraphDiscoverer
     # Files already discovered (absolute paths). Also used to avoid cycles.
     @discovered = Set(String).new
 
-    # Files in topological order (dependencies first).
-    @ordered = [] of String
+    # Files discovered in the current wave, parsed in the next one.
+    @frontier = [] of String
+
+    # The parsed files.
+    @parsed = {} of String => ASTNode
 
     # The program provides crystal_path and flags for require resolution.
     @program : Program
 
-    def initialize(@program : Program)
+    def initialize(@program : Program, @n_threads : Int32 = 1, @wants_doc : Bool = false)
     end
 
     # Discovers all files reachable via `require` statements from the initial
-    # AST nodes. Returns filenames in topological order (dependencies first).
+    # AST nodes and returns their parsed ASTs, by filename.
     #
     # The prelude require string is also resolved and its files are discovered.
-    def discover(initial_nodes : ASTNode, prelude : String) : Array(String)
+    def discover(initial_nodes : ASTNode, prelude : String) : Hash(String, ASTNode)
       # First, discover the prelude files
       begin
-        prelude_filenames = @program.find_in_path(prelude)
-        if prelude_filenames
-          prelude_filenames.each do |filename|
-            discover_file(filename)
-          end
-        end
+        @program.find_in_path(prelude).try &.each { |filename| enqueue(filename) }
       rescue CrystalPath::NotFoundError
         # Prelude not found -- let the semantic phase handle the error
       end
@@ -42,34 +45,70 @@ module Crystal
       # Then scan the initial AST for require nodes
       scan_node(initial_nodes)
 
-      @ordered
-    end
-
-    # Resolve and recursively discover a single file by its absolute path.
-    private def discover_file(filename : String) : Nil
-      return if @discovered.includes?(filename)
-      return if @program.requires.includes?(filename)
-
-      @discovered.add(filename)
-
-      # Read and parse the file to find its requires
-      begin
-        content = File.read(filename)
-        parser = Parser.new(content, StringPool.new)
-        parser.filename = filename
-        parsed = parser.parse
-
-        # Recursively scan for require nodes in this file
-        scan_node(parsed)
-      rescue ex : InvalidByteSequenceError
-        # Skip files that can't be parsed -- semantic phase will handle errors
-      rescue ex : Crystal::SyntaxException
-        # Skip files with syntax errors -- semantic phase will report them
-      rescue IO::Error
-        # Skip files that can't be read
+      until @frontier.empty?
+        wave = @frontier
+        @frontier = [] of String
+        parse_wave(wave)
+        wave.each do |filename|
+          if parsed = @parsed[filename]?
+            scan_node(parsed)
+          end
+        end
       end
 
-      @ordered << filename
+      @parsed
+    end
+
+    private def enqueue(filename : String) : Nil
+      return if @program.requires.includes?(filename)
+      return unless @discovered.add?(filename)
+
+      @frontier << filename
+    end
+
+    private def parse_wave(filenames : Array(String)) : Nil
+      {% unless flag?(:without_mt) %}
+        n = {@n_threads, filenames.size}.min
+        if n > 1
+          mutex = Sync::Mutex.new
+          channel = Channel(String).new(n * 2)
+          wg = WaitGroup.new
+
+          n.times do
+            wg.spawn do
+              # StringPool isn't thread-safe: one per worker
+              string_pool = StringPool.new
+              while filename = channel.receive?
+                if parsed = parse_file(filename, string_pool)
+                  mutex.synchronize { @parsed[filename] = parsed }
+                end
+              end
+            end
+          end
+
+          filenames.each { |filename| channel.send(filename) }
+          channel.close
+          wg.wait
+          return
+        end
+      {% end %}
+
+      string_pool = StringPool.new
+      filenames.each do |filename|
+        if parsed = parse_file(filename, string_pool)
+          @parsed[filename] = parsed
+        end
+      end
+    end
+
+    private def parse_file(filename : String, string_pool : StringPool) : ASTNode?
+      parser = Parser.new(File.read(filename), string_pool)
+      parser.filename = filename
+      parser.wants_doc = @wants_doc
+      parser.parse
+    rescue InvalidByteSequenceError | Crystal::SyntaxException | IO::Error
+      # Skip files that can't be read or parsed -- the semantic phase parses
+      # them again and reports the error
     end
 
     # Walk the AST looking for Require nodes and MacroIf nodes that might
@@ -105,7 +144,7 @@ module Crystal
       return unless filenames
 
       filenames.each do |resolved_filename|
-        discover_file(resolved_filename)
+        enqueue(resolved_filename)
       end
     end
 
