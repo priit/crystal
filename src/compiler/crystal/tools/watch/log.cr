@@ -42,10 +42,12 @@ module Crystal::Watch
       "#{path.rchop(extension)}.errors#{extension.presence || ".log"}"
     end
 
-    def initialize(@path : String)
+    # *continue* appends to the files as they are: the watcher restarted
+    # itself (see `Watcher#restart_for_full_compilation`).
+    def initialize(@path : String, *, continue : Bool = false)
       @errors_path = Log.errors_path(@path)
       Dir.mkdir_p(File.dirname(@path))
-      rotate
+      rotate unless continue
       @io = File.open(@path, "a")
       @errors = File.open(@errors_path, "a")
     end

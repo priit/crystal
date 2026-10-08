@@ -147,7 +147,7 @@ class Crystal::Command
       debounce: debounce_ms.milliseconds,
       file_watcher: file_watcher,
       color: @color,
-      log: log_file.try { |file| Watch::Log.new(file) }
+      log: log_file.try { |file| Watch::Log.new(file, continue: ENV.has_key?(Watch::Watcher::RESUME_ENV)) }
     )
 
     watcher.run

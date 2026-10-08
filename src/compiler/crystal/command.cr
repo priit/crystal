@@ -71,7 +71,12 @@ class Crystal::Command
         --help, -h               show this help
     USAGE
 
+  # The arguments the compiler was started with, before parsing took them
+  # apart: `crystal watch` starts itself again with them.
+  class_getter original_args = [] of String
+
   def self.run(options = ARGV)
+    @@original_args = options.dup
     new(options).run
   end
 

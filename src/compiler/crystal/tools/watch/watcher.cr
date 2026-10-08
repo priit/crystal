@@ -8,6 +8,13 @@ require "./log"
 module Crystal
   module Watch
     class Watcher
+      # Set by a watcher that restarted itself for a full compilation: the
+      # number of its last build and the requests it had seen.
+      RESUME_ENV = "CRYSTAL_WATCH_RESUME"
+
+      # `0` keeps a full compilation in the same process.
+      REEXEC_ENV = "CRYSTAL_WATCH_REEXEC"
+
       @compiler : Compiler
       @sources : Array(Compiler::Source)
       @output_filename : String
@@ -56,6 +63,7 @@ module Crystal
         Coordination.setup(@root)
         @request = Coordination.requested(@root)
         @answered_request = @request
+        resume
 
         loop do
           break if @interrupted
@@ -78,7 +86,10 @@ module Crystal
 
         write_status "compiling", "Compiling"
         begin
-          result = compile_incrementally(fresh_sources) || compile_fully(fresh_sources)
+          result = compile_incrementally(fresh_sources) || begin
+            restart_for_full_compilation if @result
+            compile_fully(fresh_sources)
+          end
 
           # Watch the program's files, the ones its macros read (templates, a
           # `run` program's data) and `.crystal-watch/`
@@ -117,6 +128,7 @@ module Crystal
           finish_build "failed", "File read error", ex.message
         end
 
+        release_free_memory
         return if @interrupted
 
         print_status "Watching for changes..."
@@ -245,6 +257,34 @@ module Crystal
           updated_at: Time.utc, message: message, errors: errors,
           main: @sources.first?.try(&.filename), binary: @output_filename,
           log: @log.try(&.path)))
+      end
+
+      # A full compilation types the program from scratch, so the kept one
+      # is of no more use; yet the memory the GC took for it stays with the
+      # process, and the new program and its codegen come on top of it. So
+      # the watcher starts over as a new process (the same pid, which a
+      # parent like `amber watch` waits for): it compiles fully with only the
+      # new program in memory. The build number, the requests and the logs go
+      # on where they were.
+      private def restart_for_full_compilation : Nil
+        return if ENV[REEXEC_ENV]? == "0"
+        {% if flag?(:unix) && !flag?(:wasm32) %}
+          executable = Process.executable_path || return
+          print_status "Restarting for a full compilation, to start with the memory of the last build freed"
+          kill_running_process
+          @file_watcher.close
+          @log.try &.close
+          Process.exec(executable, Crystal::Command.original_args, env: {RESUME_ENV => {@build, @request, @answered_request}.join('\t')})
+        {% end %}
+      end
+
+      # Picks up where the watcher that restarted itself left off.
+      private def resume : Nil
+        state = ENV.delete(RESUME_ENV) || return
+        build, request, answered = state.split('\t', 3)
+        @build = build.to_i? || 0
+        @request = request.presence
+        @answered_request = answered.try(&.presence)
       end
 
       private def compile_fully(sources : Array(Compiler::Source)) : Compiler::Result
@@ -467,6 +507,18 @@ module Crystal
         end
       end
 
+      # Hands back to the system the memory a build freed but malloc kept:
+      # LLVM's modules and buffers from codegen. The kept program stays in
+      # the GC's heap. Prints what the watcher holds then.
+      private def release_free_memory : Nil
+        {% if flag?(:linux) && flag?(:gnu) %}
+          LibC.malloc_trim(0)
+        {% end %}
+        if rss = Watch.resident_memory
+          print_status "Holding #{rss // (1024 * 1024)} MB"
+        end
+      end
+
       private def print_success(message : String)
         @log.try &.watcher("[watch] #{message}")
         if @color
@@ -485,5 +537,21 @@ module Crystal
         end
       end
     end
+
+    # The resident memory of this process in bytes, where the system says.
+    def self.resident_memory : Int64?
+      {% if flag?(:linux) %}
+        pages = File.read("/proc/self/statm").split[1]?.try(&.to_i64?)
+        pages.try &.*(4096)
+      {% end %}
+    rescue IO::Error
+      nil
+    end
   end
 end
+
+{% if flag?(:linux) && flag?(:gnu) %}
+  lib LibC
+    fun malloc_trim(pad : SizeT) : Int
+  end
+{% end %}
