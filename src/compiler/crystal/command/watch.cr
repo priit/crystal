@@ -34,6 +34,7 @@ class Crystal::Command
     force_polling = false
     poll_interval_ms = 1000
     specified_output = nil.as(String?)
+    log_file = nil.as(String?)
 
     option_parser = parse_with_crystal_opts do |opts|
       opts.banner = <<-USAGE
@@ -58,6 +59,10 @@ class Crystal::Command
 
       opts.on("-o FILE", "--output FILE", "Where to write the program (default: the main file's name, in the current directory)") do |output|
         specified_output = output
+      end
+
+      opts.on("--log FILE", "Also write the program's output, the builds and their errors to FILE, and only the problems to FILE.errors.log (see `crystal watch status`)") do |file|
+        log_file = file
       end
 
       opts.on("--clear", "Clear the terminal before each compilation") do
@@ -141,7 +146,8 @@ class Crystal::Command
       clear_screen: clear_screen,
       debounce: debounce_ms.milliseconds,
       file_watcher: file_watcher,
-      color: @color
+      color: @color,
+      log: log_file.try { |file| Watch::Log.new(file) }
     )
 
     watcher.run
@@ -199,6 +205,9 @@ class Crystal::Command
     held = Watch::Coordination.held?(root)
     puts "#{status.state}: #{status.message} (build #{status.build}, #{status.updated_at.to_local})"
     puts "Held by #{held}" if held && status.state != "held"
+    if log = status.log
+      puts "Log: #{log} (problems only: #{Watch::Log.errors_path(log)}; a build starts at \"=== build N started\")"
+    end
     if errors = status.errors
       puts errors
     end

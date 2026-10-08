@@ -151,8 +151,10 @@ module Crystal::Watch
       # The program file built, and where its executable is.
       property main : String?
       property binary : String?
+      # The log of `crystal watch --log`, see `Watch::Log`.
+      property log : String?
 
-      def initialize(@state, @build, @request, @pid, @updated_at, @message = nil, @errors = nil, @main = nil, @binary = nil)
+      def initialize(@state, @build, @request, @pid, @updated_at, @message = nil, @errors = nil, @main = nil, @binary = nil, @log = nil)
       end
 
       def finished? : Bool

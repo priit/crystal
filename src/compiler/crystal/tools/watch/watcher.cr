@@ -3,6 +3,7 @@ require "./kqueue_watcher"
 require "./inotify_watcher"
 require "./coordination"
 require "./spec_build"
+require "./log"
 
 module Crystal
   module Watch
@@ -18,6 +19,7 @@ module Crystal
       @running_process : Process?
       @color : Bool
       @interrupted : Bool = false
+      @log : Log?
 
       # The typed program is kept between builds, and a change that only
       # edits method bodies types just those again (see `IncrementalSemantic`).
@@ -45,6 +47,7 @@ module Crystal
         @debounce : Time::Span = 300.milliseconds,
         @file_watcher : FileWatcher = FileWatcher.create,
         @color : Bool = true,
+        @log : Log? = nil,
       )
       end
 
@@ -65,6 +68,7 @@ module Crystal
 
       private def compile_and_watch
         source_file = @sources.first?.try(&.filename) || "unknown"
+        @log.try &.build_started(@build + 1)
         print_status "Compiling #{Crystal.relative_filename(source_file)}..."
 
         # Re-read source files from disk (content may have changed)
@@ -98,14 +102,17 @@ module Crystal
           errors = ex.to_s
           ex.color = @color
           STDERR.puts ex
+          @log.try &.watcher(errors, problem: true)
           print_error "Compilation failed (watching for changes...)"
           finish_build "failed", "Compilation failed", errors
         rescue ex : Crystal::Error
           STDERR.puts ex.message
+          @log.try &.watcher(ex.message.to_s, problem: true)
           print_error "Compilation failed (watching for changes...)"
           finish_build "failed", "Compilation failed", ex.message
         rescue ex : IO::Error
           STDERR.puts ex.message
+          @log.try &.watcher(ex.message.to_s, problem: true)
           print_error "File read error (watching for changes...)"
           finish_build "failed", "File read error", ex.message
         end
@@ -236,7 +243,8 @@ module Crystal
         Coordination.write_status(@root, Coordination::Status.new(
           state: state, build: @build, request: @request, pid: Process.pid.to_i64,
           updated_at: Time.utc, message: message, errors: errors,
-          main: @sources.first?.try(&.filename), binary: @output_filename))
+          main: @sources.first?.try(&.filename), binary: @output_filename,
+          log: @log.try(&.path)))
       end
 
       private def compile_fully(sources : Array(Compiler::Source)) : Compiler::Result
@@ -344,13 +352,33 @@ module Crystal
           )
         else
           print_status "Running: #{executable}"
-          @running_process = Process.new(
+          log = @log
+          redirect = log ? Process::Redirect::Pipe : Process::Redirect::Inherit
+          process = @running_process = Process.new(
             executable,
             args: @run_args,
             input: Process::Redirect::Inherit,
-            output: Process::Redirect::Inherit,
-            error: Process::Redirect::Inherit
+            output: redirect,
+            error: redirect
           )
+          if log
+            forward process.output, STDOUT, log, error: false
+            forward process.error, STDERR, log, error: true
+          end
+        end
+      end
+
+      # Copies what the program prints to the terminal and to the log, line
+      # by line, until it exits.
+      private def forward(from : IO, to : IO, log : Log, error : Bool) : Nil
+        spawn do
+          while line = from.gets(chomp: false)
+            to.print line
+            to.flush
+            log.program(line, error)
+          end
+        rescue IO::Error
+          # The program was stopped
         end
       end
 
@@ -385,6 +413,7 @@ module Crystal
       private def cleanup
         kill_running_process
         @file_watcher.close
+        @log.try &.close
       end
 
       private def wasm_target? : Bool
@@ -426,6 +455,7 @@ module Crystal
       end
 
       private def print_status(message : String)
+        @log.try &.watcher("[watch] #{message}")
         if @color
           STDOUT.puts "[watch] #{message}".colorize(:cyan)
         else
@@ -434,6 +464,7 @@ module Crystal
       end
 
       private def print_success(message : String)
+        @log.try &.watcher("[watch] #{message}")
         if @color
           STDOUT.puts "[watch] #{message}".colorize(:green)
         else
@@ -442,6 +473,7 @@ module Crystal
       end
 
       private def print_error(message : String)
+        @log.try &.watcher("[watch] #{message}", problem: true)
         if @color
           STDERR.puts "[watch] #{message}".colorize(:red)
         else
