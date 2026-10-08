@@ -87,7 +87,7 @@ module Crystal
         write_status "compiling", "Compiling"
         begin
           result = compile_incrementally(fresh_sources) || begin
-            restart_for_full_compilation if @result
+            restart_for_full_compilation if @result || !@spec_builds.empty?
             compile_fully(fresh_sources)
           end
 
@@ -197,7 +197,17 @@ module Crystal
         files = request.files.sort
         print_status "Compiling specs (#{files.size} file#{files.size == 1 ? "" : "s"})..."
         start = Time.instant
-        spec_build = @spec_builds[files] ||= SpecBuild.new(files)
+        spec_build = @spec_builds[files]?
+        unless spec_build && spec_build.kept?
+          # A spec program compiled from scratch is as big as the program
+          # itself: keep one of them in memory. The next build of the
+          # program starts the watcher over (`restart_for_full_compilation`).
+          @spec_builds.clear
+          @incremental_semantic = nil
+          @result = nil
+          GC.collect
+          spec_build = @spec_builds[files] = SpecBuild.new(files)
+        end
         response =
           begin
             affected = spec_build.build(@compiler)

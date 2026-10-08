@@ -22,6 +22,17 @@ describe Crystal::Watch::Log do
     end
   end
 
+  it "goes on in the same files for a watcher that restarted itself" do
+    with_tempfile("watch_log") do |dir|
+      path = File.join(dir, "development.log")
+      Crystal::Watch::Log.new(path).tap(&.watcher("first")).close
+      Crystal::Watch::Log.new(path, continue: true).tap(&.watcher("second")).close
+
+      read_log(dir, "development.log").should eq("first\nsecond\n")
+      File.exists?(File.join(dir, "development.log.1")).should be_false
+    end
+  end
+
   it "marks builds and keeps the problems apart, without colors" do
     with_tempfile("watch_log") do |dir|
       log = Crystal::Watch::Log.new(File.join(dir, "development.log"))

@@ -24,6 +24,11 @@ module Crystal
         @output = File.join(CacheDir.instance.directory_for([@source]), "spec.watch")
       end
 
+      # Whether the typed program is kept, so a build types just what changed.
+      def kept? : Bool
+        !!(@incremental && @result && File.exists?(@output))
+      end
+
       # Brings the executable up to date. Returns the locations of the
       # examples affected by the changes since the previous build, `nil` when
       # unknown (compiled from scratch).
