@@ -1,5 +1,10 @@
 # Crystal Alpha — fast rebuilds fork
 
+**Project discontinued:** The attempt to implement incremental compilation for
+Crystal failed. Given Crystal's current architecture, I concluded that a proper
+solution is not feasible, so I have moved on to [Iyi](https://github.com/iyilang/iyi).
+The rest of this README documents the discontinued experiment.
+
 A Crystal compiler fork where editing a method rebuilds in a fraction of a
 second. On an Amber V2 blog (101 files, [benchmark](#benchmark-an-amber-v2-blog)),
 the running server shows a method body edit in 0.6 s and a template edit in
